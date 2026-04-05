@@ -19,6 +19,8 @@ namespace CitronClicker
         public int MaxCps { get; set; } = 14;
         public bool AllowBlockBreaking { get; set; } = true;
         public bool AvoidGui { get; set; } = true;
+        public bool Jitter { get; set; } = false;
+        public int JitterIntensity { get; set; } = 2;
         public int Hotkey { get; set; } = 0;
     }
 
@@ -29,6 +31,7 @@ namespace CitronClicker
         private const int WM_LBUTTONUP = 0x0202;
         private const int WM_MOUSEMOVE = 0x0200;
         private const uint LLMHF_INJECTED = 0x00000001;
+        private const uint MOUSEEVENTF_MOVE = 0x0001;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MSLLHOOKSTRUCT
@@ -168,7 +171,12 @@ namespace CitronClicker
             MaxCpsText.Text = currentProfile.MaxCps.ToString();
             BlockBreakingCheck.IsChecked = currentProfile.AllowBlockBreaking;
             AvoidGuiCheck.IsChecked = currentProfile.AvoidGui;
+            JitterCheck.IsChecked = currentProfile.Jitter;
+            JitterSlider.Value = currentProfile.JitterIntensity;
+            JitterText.Text = currentProfile.JitterIntensity.ToString();
             MasterToggleCheck.IsChecked = currentProfile.IsEnabled;
+
+            JitterIntensityCard.Visibility = currentProfile.Jitter ? Visibility.Visible : Visibility.Collapsed;
 
             if (currentProfile.IsLeft)
             {
@@ -201,20 +209,24 @@ namespace CitronClicker
         private void UiTimer_Tick(object sender, EventArgs e)
         {
             bool found = false;
-            Process[] procs = Process.GetProcessesByName("Minecraft.Windows");
-            if (procs.Length > 0) found = true;
-            else
+            try
             {
-                Process[] javaw = Process.GetProcessesByName("javaw");
-                foreach (var p in javaw)
+                Process[] procs = Process.GetProcessesByName("Minecraft.Windows");
+                if (procs.Length > 0) found = true;
+                else
                 {
-                    if (p.MainWindowTitle.ToLower().Contains("minecraft"))
+                    Process[] javaw = Process.GetProcessesByName("javaw");
+                    foreach (var p in javaw)
                     {
-                        found = true;
-                        break;
+                        if (p.MainWindowTitle.ToLower().Contains("minecraft"))
+                        {
+                            found = true;
+                            break;
+                        }
                     }
                 }
             }
+            catch { }
 
             isMinecraftRunning = found;
             UpdateStatusText();
@@ -238,10 +250,19 @@ namespace CitronClicker
 
         private IntPtr SetHook(LowLevelMouseProc proc)
         {
-            using (Process curProcess = Process.GetCurrentProcess())
-            using (ProcessModule curModule = curProcess.MainModule)
+            try
             {
-                return SetWindowsHookEx(WH_MOUSE_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
+                using (Process curProcess = Process.GetCurrentProcess())
+                using (ProcessModule curModule = curProcess.MainModule)
+                {
+                    IntPtr handle = GetModuleHandle(curModule?.ModuleName);
+                    if (handle == IntPtr.Zero) handle = GetModuleHandle(null);
+                    return SetWindowsHookEx(WH_MOUSE_LL, proc, handle, 0);
+                }
+            }
+            catch
+            {
+                return IntPtr.Zero;
             }
         }
 
@@ -387,18 +408,22 @@ namespace CitronClicker
             IntPtr hWnd = GetForegroundWindow();
             if (hWnd == IntPtr.Zero) return false;
 
-            StringBuilder sb = new StringBuilder(256);
-            GetWindowText(hWnd, sb, 256);
-            string title = sb.ToString();
-            if (title == "Minecraft" || title.Contains("Minecraft"))
-                return true;
-
             GetWindowThreadProcessId(hWnd, out uint pid);
             try
             {
                 Process proc = Process.GetProcessById((int)pid);
-                if (proc.ProcessName.Contains("Minecraft.Windows"))
+                string procName = proc.ProcessName.ToLower();
+
+                if (procName.Contains("minecraft.windows"))
                     return true;
+
+                if (procName.Contains("javaw"))
+                {
+                    StringBuilder sb = new StringBuilder(256);
+                    GetWindowText(hWnd, sb, 256);
+                    if (sb.ToString().ToLower().Contains("minecraft"))
+                        return true;
+                }
             }
             catch { }
 
@@ -443,6 +468,21 @@ namespace CitronClicker
         {
             if (isUpdatingUI) return;
             currentProfile.AvoidGui = AvoidGuiCheck.IsChecked ?? false;
+        }
+
+        private void JitterCheck_Click(object sender, RoutedEventArgs e)
+        {
+            if (isUpdatingUI) return;
+            currentProfile.Jitter = JitterCheck.IsChecked ?? false;
+            JitterIntensityCard.Visibility = currentProfile.Jitter ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void JitterSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (isUpdatingUI) return;
+            if (JitterSlider == null || JitterText == null) return;
+            currentProfile.JitterIntensity = (int)JitterSlider.Value;
+            JitterText.Text = currentProfile.JitterIntensity.ToString();
         }
 
         private void PreciseDelay(int delayMs, CancellationToken token)
@@ -515,6 +555,14 @@ namespace CitronClicker
                             }
 
                             mouse_event(downEvent, 0, 0, 0, 0);
+                            
+                            if (profile.Jitter)
+                            {
+                                int jx = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
+                                int jy = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
+                                mouse_event(MOUSEEVENTF_MOVE, (uint)jx, (uint)jy, 0, 0);
+                            }
+
                             PreciseDelay(downTime, token);
                         }
                         else
