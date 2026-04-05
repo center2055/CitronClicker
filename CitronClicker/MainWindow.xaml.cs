@@ -143,11 +143,25 @@ namespace CitronClicker
 
         public MainWindow()
         {
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                MessageBox.Show("Fatal Error: " + e.ExceptionObject.ToString(), "Citron Clicker Crash", MessageBoxButton.OK, MessageBoxImage.Error);
+            };
+
+            if (Application.Current != null)
+            {
+                Application.Current.DispatcherUnhandledException += (s, e) =>
+                {
+                    MessageBox.Show("UI Error: " + e.Exception.ToString(), "Citron Clicker Crash", MessageBoxButton.OK, MessageBoxImage.Error);
+                    e.Handled = true;
+                };
+            }
+
             currentProfile = leftProfile;
             
             InitializeComponent();
-            _proc = HookCallback;
-            _hookID = SetHook(_proc);
+            
+            this.Loaded += MainWindow_Loaded;
 
             uiTimer = new DispatcherTimer();
             uiTimer.Interval = TimeSpan.FromMilliseconds(500);
@@ -160,6 +174,12 @@ namespace CitronClicker
             Task.Run(() => HotkeyLoop(cts.Token));
 
             UpdateUIFromProfile();
+        }
+
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            _proc = HookCallback;
+            _hookID = SetHook(_proc);
         }
 
         private void UpdateUIFromProfile()
