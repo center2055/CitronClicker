@@ -6,7 +6,7 @@ Made this external autoclicker for Minecraft Bedrock and Java. I wanted somethin
 
 * **Left and Right Clicker:** You can configure them completely separate from each other.
 * **Precise CPS:** 1 to 20 CPS.
-* **Suspend Key:** Bind a key (like a side mouse button) to hold down when you want to pause the clicker. Super useful for breaking blocks so it doesn't just spam click them.
+* **Suspend Key:** Bind a key (like a side mouse button) to hold down when you want to pause the clicker. Useful for breaking blocks so it doesn't just spam click them.
 * **Module Hotkey:** Quick toggle to turn the whole thing on or off.
 * **Avoid GUI:** Automatically stops clicking when your cursor is visible (so it doesn't mess up your inventory or menus).
 * **Jitter:** Simulates hand shaking.
