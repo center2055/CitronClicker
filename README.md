@@ -1,6 +1,6 @@
 # Citron Clicker
 
-Citron Clicker is a high-performance, cleanly designed autoclicker specifically built and optimized for Minecraft Bedrock Edition. It features a modern user interface and precise clicking mechanics to ensure accurate CPS rates.
+Citron Clicker is a high-performance, cleanly designed autoclicker specifically built and optimized for Minecraft Bedrock and Java Edition. It features a modern user interface and precise clicking mechanics to ensure accurate CPS rates.
 
 ## Features
 
@@ -17,6 +17,7 @@ Citron Clicker is a high-performance, cleanly designed autoclicker specifically 
 
 ![Citron Clicker UI](assets/screenshot.png)
 
-## About Me
+## Links
 
-Made by center2055. I develop tools and modifications with a focus on clean design and reliable functionality.
+* [Discord](https://discord.gg/y3MVspPzKQ)
+* [Ko-fi](https://ko-fi.com/center2055)
