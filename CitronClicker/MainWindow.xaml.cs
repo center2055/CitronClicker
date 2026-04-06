@@ -17,7 +17,7 @@ namespace CitronClicker
         public bool IsEnabled { get; set; }
         public int MinCps { get; set; } = 10;
         public int MaxCps { get; set; } = 14;
-        public bool AllowBlockBreaking { get; set; } = true;
+        public int SuspendKey { get; set; } = 0;
         public bool AvoidGui { get; set; } = true;
         public bool Jitter { get; set; } = false;
         public int JitterIntensity { get; set; } = 2;
@@ -189,7 +189,6 @@ namespace CitronClicker
             MaxCpsSlider.Value = currentProfile.MaxCps;
             MinCpsText.Text = currentProfile.MinCps.ToString();
             MaxCpsText.Text = currentProfile.MaxCps.ToString();
-            BlockBreakingCheck.IsChecked = currentProfile.AllowBlockBreaking;
             AvoidGuiCheck.IsChecked = currentProfile.AvoidGui;
             JitterCheck.IsChecked = currentProfile.Jitter;
             JitterSlider.Value = currentProfile.JitterIntensity;
@@ -198,14 +197,8 @@ namespace CitronClicker
 
             JitterIntensityCard.Visibility = currentProfile.Jitter ? Visibility.Visible : Visibility.Collapsed;
 
-            if (currentProfile.IsLeft)
-            {
-                BlockBreakingCard.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                BlockBreakingCard.Visibility = Visibility.Hidden;
-            }
+            if (currentProfile.SuspendKey == 0) SuspendKeyBtn.Content = "None";
+            else SuspendKeyBtn.Content = ((Key)KeyInterop.KeyFromVirtualKey(currentProfile.SuspendKey)).ToString();
 
             if (currentProfile.Hotkey == 0) HotkeyBtn.Content = "None";
             else HotkeyBtn.Content = ((Key)KeyInterop.KeyFromVirtualKey(currentProfile.Hotkey)).ToString();
@@ -400,27 +393,30 @@ namespace CitronClicker
 
         private void HotkeyBtn_Click(object sender, RoutedEventArgs e)
         {
+            if (isBindingHotkey) return;
             isBindingHotkey = true;
-            HotkeyBtn.Content = "...";
+            HotkeyBtn.Content = "Press Key...";
+            this.KeyDown += OnModuleHotkeyDown;
+            this.Focus();
         }
 
-        protected override void OnKeyDown(KeyEventArgs e)
+        private void OnModuleHotkeyDown(object sender, KeyEventArgs e)
         {
-            base.OnKeyDown(e);
-            if (isBindingHotkey)
+            this.KeyDown -= OnModuleHotkeyDown;
+            isBindingHotkey = false;
+
+            if (e.Key == Key.Escape)
             {
-                if (e.Key == Key.Escape)
-                {
-                    currentProfile.Hotkey = 0;
-                    HotkeyBtn.Content = "None";
-                }
-                else
-                {
-                    currentProfile.Hotkey = KeyInterop.VirtualKeyFromKey(e.Key);
-                    HotkeyBtn.Content = e.Key.ToString();
-                }
-                isBindingHotkey = false;
+                currentProfile.Hotkey = 0;
+                HotkeyBtn.Content = "None";
             }
+            else
+            {
+                int virtualKey = KeyInterop.VirtualKeyFromKey(e.Key);
+                currentProfile.Hotkey = virtualKey;
+                HotkeyBtn.Content = e.Key.ToString();
+            }
+            e.Handled = true;
         }
 
         private bool IsMinecraftActive()
@@ -478,10 +474,37 @@ namespace CitronClicker
             }
         }
 
+        private void SuspendKeyBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (isBindingHotkey) return;
+            isBindingHotkey = true;
+            SuspendKeyBtn.Content = "Press Key...";
+            this.KeyDown += OnSuspendKeyDown;
+            this.Focus();
+        }
+
+        private void OnSuspendKeyDown(object sender, KeyEventArgs e)
+        {
+            this.KeyDown -= OnSuspendKeyDown;
+            isBindingHotkey = false;
+
+            if (e.Key == Key.Escape)
+            {
+                currentProfile.SuspendKey = 0;
+                SuspendKeyBtn.Content = "None";
+            }
+            else
+            {
+                int virtualKey = KeyInterop.VirtualKeyFromKey(e.Key);
+                currentProfile.SuspendKey = virtualKey;
+                SuspendKeyBtn.Content = e.Key.ToString();
+            }
+            e.Handled = true;
+        }
+
         private void BlockBreakingCheck_Click(object sender, RoutedEventArgs e)
         {
-            if (isUpdatingUI) return;
-            currentProfile.AllowBlockBreaking = BlockBreakingCheck.IsChecked ?? false;
+            // Removed
         }
 
         private void AvoidGuiCheck_Click(object sender, RoutedEventArgs e)
@@ -532,6 +555,16 @@ namespace CitronClicker
                     shouldClick = false;
                 }
 
+                // Check Suspend Key
+                if (shouldClick && profile.SuspendKey != 0)
+                {
+                    short suspendState = GetAsyncKeyState(profile.SuspendKey);
+                    if ((suspendState & 0x8000) != 0)
+                    {
+                        shouldClick = false; // Pause clicking while suspend key is held
+                    }
+                }
+
                 uint downEvent = profile.IsLeft ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_RIGHTDOWN;
                 uint upEvent = profile.IsLeft ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_RIGHTUP;
 
@@ -548,57 +581,32 @@ namespace CitronClicker
                             isHolding = false;
                         }
 
-                        bool isMouseStill = (Environment.TickCount64 - lastPhysicalMouseMoveTime) > 300;
+                        int currentCps = random.Next(profile.MinCps, profile.MaxCps + 1);
+                        int totalCycleTime = 1000 / currentCps;
+                        int upTime = random.Next(10, Math.Min(30, totalCycleTime / 2));
+                        int downTime = totalCycleTime - upTime;
 
-                        if (profile.AllowBlockBreaking && isMouseStill && profile.IsLeft)
+                        mouse_event(upEvent, 0, 0, 0, 0);
+                        PreciseDelay(upTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
+                        
+                        // Check if user released during the delay
+                        bool stillDown = profile.IsLeft ? physicalLmbDown : physicalRmbDown;
+                        if (!stillDown)
                         {
-                            if (!isHolding)
-                            {
-                                mouse_event(downEvent, 0, 0, 0, 0);
-                                isHolding = true;
-                            }
-                            await Task.Delay(10, token);
+                            btnDownTime = 0;
+                            continue;
                         }
-                        else if (!isHolding)
+
+                        mouse_event(downEvent, 0, 0, 0, 0);
+                        
+                        if (profile.Jitter)
                         {
-                            int currentCps = random.Next(profile.MinCps, profile.MaxCps + 1);
-                            int totalCycleTime = 1000 / currentCps;
-                            int upTime = random.Next(10, Math.Min(30, totalCycleTime / 2));
-                            int downTime = totalCycleTime - upTime;
-
-                            mouse_event(upEvent, 0, 0, 0, 0);
-                            PreciseDelay(upTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
-                            
-                            // Check if user released during the delay
-                            bool stillDown = profile.IsLeft ? physicalLmbDown : physicalRmbDown;
-                            if (!stillDown)
-                            {
-                                btnDownTime = 0;
-                                continue;
-                            }
-
-                            mouse_event(downEvent, 0, 0, 0, 0);
-                            
-                            if (profile.Jitter)
-                            {
-                                int jx = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
-                                int jy = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
-                                mouse_event(MOUSEEVENTF_MOVE, (uint)jx, (uint)jy, 0, 0);
-                            }
-
-                            PreciseDelay(downTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
+                            int jx = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
+                            int jy = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
+                            mouse_event(MOUSEEVENTF_MOVE, (uint)jx, (uint)jy, 0, 0);
                         }
-                        else
-                        {
-                            // If we were holding, but mouse started moving again, break the hold and resume clicking
-                            if (!isMouseStill)
-                            {
-                                mouse_event(upEvent, 0, 0, 0, 0);
-                                isHolding = false;
-                                btnDownTime = Environment.TickCount64; // Reset hold timer
-                            }
-                            await Task.Delay(10, token);
-                        }
+
+                        PreciseDelay(downTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
                     }
                     else
                     {
