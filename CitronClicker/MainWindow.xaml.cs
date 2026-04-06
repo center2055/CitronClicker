@@ -541,11 +541,16 @@ namespace CitronClicker
 
         private async Task HotkeyLoop(CancellationToken token)
         {
-            bool leftWasPressed = false;
-            bool rightWasPressed = false;
+            bool leftWasPressed = true; // Initialize to true so it requires a release first
+            bool rightWasPressed = true;
             while (!token.IsCancellationRequested)
             {
-                if (!isBindingHotkey)
+                if (isBindingHotkey)
+                {
+                    leftWasPressed = true;
+                    rightWasPressed = true;
+                }
+                else
                 {
                     if (leftProfile.Hotkey != 0)
                     {
