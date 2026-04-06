@@ -505,12 +505,12 @@ namespace CitronClicker
             JitterText.Text = currentProfile.JitterIntensity.ToString();
         }
 
-        private void PreciseDelay(int delayMs, CancellationToken token)
+        private void PreciseDelay(int delayMs, Func<bool> condition, CancellationToken token)
         {
             Stopwatch sw = Stopwatch.StartNew();
             while (sw.ElapsedMilliseconds < delayMs)
             {
-                if (token.IsCancellationRequested) break;
+                if (token.IsCancellationRequested || (condition != null && !condition())) break;
                 if (delayMs - sw.ElapsedMilliseconds > 15)
                     Thread.Sleep(1);
                 else
@@ -522,6 +522,7 @@ namespace CitronClicker
         {
             long btnDownTime = 0;
             bool isHolding = false;
+            bool wasClicking = false;
 
             while (!token.IsCancellationRequested)
             {
@@ -531,14 +532,16 @@ namespace CitronClicker
                     shouldClick = false;
                 }
 
+                uint downEvent = profile.IsLeft ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_RIGHTDOWN;
+                uint upEvent = profile.IsLeft ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_RIGHTUP;
+
                 if (shouldClick)
                 {
                     bool physicalBtnDown = profile.IsLeft ? physicalLmbDown : physicalRmbDown;
-                    uint downEvent = profile.IsLeft ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_RIGHTDOWN;
-                    uint upEvent = profile.IsLeft ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_RIGHTUP;
 
                     if (physicalBtnDown)
                     {
+                        wasClicking = true;
                         if (btnDownTime == 0)
                         {
                             btnDownTime = Environment.TickCount64;
@@ -564,7 +567,7 @@ namespace CitronClicker
                             int downTime = totalCycleTime - upTime;
 
                             mouse_event(upEvent, 0, 0, 0, 0);
-                            PreciseDelay(upTime, token);
+                            PreciseDelay(upTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
                             
                             // Check if user released during the delay
                             bool stillDown = profile.IsLeft ? physicalLmbDown : physicalRmbDown;
@@ -583,7 +586,7 @@ namespace CitronClicker
                                 mouse_event(MOUSEEVENTF_MOVE, (uint)jx, (uint)jy, 0, 0);
                             }
 
-                            PreciseDelay(downTime, token);
+                            PreciseDelay(downTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
                         }
                         else
                         {
@@ -600,10 +603,11 @@ namespace CitronClicker
                     else
                     {
                         btnDownTime = 0;
-                        if (isHolding)
+                        if (wasClicking || isHolding)
                         {
                             mouse_event(upEvent, 0, 0, 0, 0);
                             isHolding = false;
+                            wasClicking = false;
                         }
                         await Task.Delay(10, token);
                     }
@@ -611,11 +615,11 @@ namespace CitronClicker
                 else
                 {
                     btnDownTime = 0;
-                    if (isHolding)
+                    if (wasClicking || isHolding)
                     {
-                        uint upEvent = profile.IsLeft ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_RIGHTUP;
                         mouse_event(upEvent, 0, 0, 0, 0);
                         isHolding = false;
+                        wasClicking = false;
                     }
                     await Task.Delay(50, token);
                 }
