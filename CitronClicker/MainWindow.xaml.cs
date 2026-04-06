@@ -759,7 +759,25 @@ namespace CitronClicker
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = "https://github.com/center2055",
+                FileName = "https://github.com/center2055/OnionHop",
+                UseShellExecute = true
+            });
+        }
+
+        private void DiscordBtn_Click(object sender, RoutedEventArgs e)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://discord.gg/y3MVspPzKQ",
+                UseShellExecute = true
+            });
+        }
+
+        private void KofiBtn_Click(object sender, RoutedEventArgs e)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://ko-fi.com/center2055",
                 UseShellExecute = true
             });
         }
