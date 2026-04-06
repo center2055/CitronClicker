@@ -317,8 +317,8 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- Block Breaking -->
-                        <Border x:Name="BlockBreakingCard" Grid.Row="0" Grid.Column="0" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20">
+                        <!-- Suspend Key -->
+                        <Border x:Name="SuspendKeyCard" Grid.Row="0" Grid.Column="0" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -326,11 +326,11 @@
                                 </Grid.ColumnDefinitions>
                                 
                                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
-                                    <TextBlock Text="BLOCK BREAKING" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextColor}" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="Hold mouse still to break" FontSize="10" Foreground="{StaticResource SubTextColor}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="SUSPEND KEY" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextColor}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="Hold to pause clicker" FontSize="10" Foreground="{StaticResource SubTextColor}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
                                 </StackPanel>
                                 
-                                <CheckBox x:Name="BlockBreakingCheck" Grid.Column="1" IsChecked="True" Style="{StaticResource ToggleSwitchStyle}" VerticalAlignment="Center" Click="BlockBreakingCheck_Click"/>
+                                <Button x:Name="SuspendKeyBtn" Grid.Column="1" Content="None" Click="SuspendKeyBtn_Click" Style="{StaticResource HotkeyButtonStyle}" VerticalAlignment="Center"/>
                             </Grid>
                         </Border>
 
