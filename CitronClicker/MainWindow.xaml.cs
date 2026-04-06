@@ -182,6 +182,33 @@ namespace CitronClicker
             _hookID = SetHook(_proc);
         }
 
+        private string VirtualKeyToString(int vk)
+        {
+            switch (vk)
+            {
+                case 0: return "None";
+                case 0x01: return "Left Click";
+                case 0x02: return "Right Click";
+                case 0x04: return "Middle Click";
+                case 0x05: return "Mouse 4";
+                case 0x06: return "Mouse 5";
+                default: return ((Key)KeyInterop.KeyFromVirtualKey(vk)).ToString();
+            }
+        }
+
+        private int MouseButtonToVirtualKey(MouseButton button)
+        {
+            switch (button)
+            {
+                case MouseButton.Left: return 0x01;
+                case MouseButton.Right: return 0x02;
+                case MouseButton.Middle: return 0x04;
+                case MouseButton.XButton1: return 0x05;
+                case MouseButton.XButton2: return 0x06;
+                default: return 0;
+            }
+        }
+
         private void UpdateUIFromProfile()
         {
             isUpdatingUI = true;
@@ -197,11 +224,8 @@ namespace CitronClicker
 
             JitterIntensityCard.Visibility = currentProfile.Jitter ? Visibility.Visible : Visibility.Collapsed;
 
-            if (currentProfile.SuspendKey == 0) SuspendKeyBtn.Content = "None";
-            else SuspendKeyBtn.Content = ((Key)KeyInterop.KeyFromVirtualKey(currentProfile.SuspendKey)).ToString();
-
-            if (currentProfile.Hotkey == 0) HotkeyBtn.Content = "None";
-            else HotkeyBtn.Content = ((Key)KeyInterop.KeyFromVirtualKey(currentProfile.Hotkey)).ToString();
+            SuspendKeyBtn.Content = VirtualKeyToString(currentProfile.SuspendKey);
+            HotkeyBtn.Content = VirtualKeyToString(currentProfile.Hotkey);
 
             UpdateStatusText();
             isUpdatingUI = false;
@@ -397,12 +421,14 @@ namespace CitronClicker
             isBindingHotkey = true;
             HotkeyBtn.Content = "Press Key...";
             this.KeyDown += OnModuleHotkeyDown;
+            this.MouseDown += OnModuleHotkeyMouseDown;
             this.Focus();
         }
 
         private void OnModuleHotkeyDown(object sender, KeyEventArgs e)
         {
             this.KeyDown -= OnModuleHotkeyDown;
+            this.MouseDown -= OnModuleHotkeyMouseDown;
             isBindingHotkey = false;
 
             if (e.Key == Key.Escape)
@@ -415,6 +441,21 @@ namespace CitronClicker
                 int virtualKey = KeyInterop.VirtualKeyFromKey(e.Key);
                 currentProfile.Hotkey = virtualKey;
                 HotkeyBtn.Content = e.Key.ToString();
+            }
+            e.Handled = true;
+        }
+
+        private void OnModuleHotkeyMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            this.KeyDown -= OnModuleHotkeyDown;
+            this.MouseDown -= OnModuleHotkeyMouseDown;
+            isBindingHotkey = false;
+
+            int vk = MouseButtonToVirtualKey(e.ChangedButton);
+            if (vk != 0)
+            {
+                currentProfile.Hotkey = vk;
+                HotkeyBtn.Content = VirtualKeyToString(vk);
             }
             e.Handled = true;
         }
@@ -480,12 +521,14 @@ namespace CitronClicker
             isBindingHotkey = true;
             SuspendKeyBtn.Content = "Press Key...";
             this.KeyDown += OnSuspendKeyDown;
+            this.MouseDown += OnSuspendMouseDown;
             this.Focus();
         }
 
         private void OnSuspendKeyDown(object sender, KeyEventArgs e)
         {
             this.KeyDown -= OnSuspendKeyDown;
+            this.MouseDown -= OnSuspendMouseDown;
             isBindingHotkey = false;
 
             if (e.Key == Key.Escape)
@@ -498,6 +541,21 @@ namespace CitronClicker
                 int virtualKey = KeyInterop.VirtualKeyFromKey(e.Key);
                 currentProfile.SuspendKey = virtualKey;
                 SuspendKeyBtn.Content = e.Key.ToString();
+            }
+            e.Handled = true;
+        }
+
+        private void OnSuspendMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            this.KeyDown -= OnSuspendKeyDown;
+            this.MouseDown -= OnSuspendMouseDown;
+            isBindingHotkey = false;
+
+            int vk = MouseButtonToVirtualKey(e.ChangedButton);
+            if (vk != 0)
+            {
+                currentProfile.SuspendKey = vk;
+                SuspendKeyBtn.Content = VirtualKeyToString(vk);
             }
             e.Handled = true;
         }
