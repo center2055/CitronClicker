@@ -1,7 +1,9 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -11,6 +13,12 @@ using System.Windows.Threading;
 
 namespace CitronClicker
 {
+    public class AppConfig
+    {
+        public ClickerProfile LeftProfile { get; set; } = new ClickerProfile { IsLeft = true, Hotkey = 0x56 };
+        public ClickerProfile RightProfile { get; set; } = new ClickerProfile { IsLeft = false, Hotkey = 0 };
+    }
+
     public class ClickerProfile
     {
         public bool IsLeft { get; set; }
@@ -99,6 +107,48 @@ namespace CitronClicker
         private ClickerProfile currentProfile;
         private bool isUpdatingUI = false;
 
+        private string GetConfigPath()
+        {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string folder = Path.Combine(appData, "CitronClicker");
+            if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
+            return Path.Combine(folder, "config.json");
+        }
+
+        private void SaveConfig()
+        {
+            try
+            {
+                var config = new AppConfig { LeftProfile = leftProfile, RightProfile = rightProfile };
+                string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(GetConfigPath(), json);
+                MessageBox.Show("Configuration Saved!", "Citron Clicker", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error saving config: " + ex.Message, "Citron Clicker", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void LoadConfig()
+        {
+            try
+            {
+                string path = GetConfigPath();
+                if (File.Exists(path))
+                {
+                    string json = File.ReadAllText(path);
+                    var config = JsonSerializer.Deserialize<AppConfig>(json);
+                    if (config != null)
+                    {
+                        if (config.LeftProfile != null) leftProfile = config.LeftProfile;
+                        if (config.RightProfile != null) rightProfile = config.RightProfile;
+                    }
+                }
+            }
+            catch { }
+        }
+
         private bool IsCursorVisible()
         {
             CURSORINFO pci = new CURSORINFO();
@@ -156,6 +206,8 @@ namespace CitronClicker
                     e.Handled = true;
                 };
             }
+
+            LoadConfig();
 
             currentProfile = leftProfile;
             
@@ -410,9 +462,7 @@ namespace CitronClicker
 
         private void SaveBtn_Click(object sender, RoutedEventArgs e)
         {
-            // Optional: Save to config file here if needed.
-            // For now, we just close the window or show a message.
-            MessageBox.Show("Configuration Saved!", "Citron Clicker", MessageBoxButton.OK, MessageBoxImage.Information);
+            SaveConfig();
         }
 
         private void HotkeyBtn_Click(object sender, RoutedEventArgs e)
