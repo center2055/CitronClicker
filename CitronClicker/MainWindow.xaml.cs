@@ -211,7 +211,9 @@ namespace CitronClicker
 
             currentProfile = leftProfile;
             
+            isUpdatingUI = true;
             InitializeComponent();
+            isUpdatingUI = false;
             
             this.Loaded += MainWindow_Loaded;
 
