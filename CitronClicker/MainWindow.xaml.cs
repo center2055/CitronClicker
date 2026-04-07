@@ -696,10 +696,21 @@ namespace CitronClicker
                             isHolding = false;
                         }
 
-                        int currentCps = random.Next(profile.MinCps, profile.MaxCps + 1);
-                        int totalCycleTime = 1000 / currentCps;
-                        int upTime = random.Next(10, Math.Min(30, totalCycleTime / 2));
+                        double currentCps = profile.MinCps + (random.NextDouble() * (profile.MaxCps - profile.MinCps));
+                        int baseCycleTime = (int)(1000.0 / currentCps);
+                        
+                        // Add organic noise to the cycle time
+                        int noise = random.Next(-8, 9);
+                        int totalCycleTime = Math.Max(20, baseCycleTime + noise);
+
+                        int upTime = random.Next(10, Math.Max(15, totalCycleTime / 2));
                         int downTime = totalCycleTime - upTime;
+
+                        // Occasional extra delay to simulate human inconsistency (drop-offs)
+                        if (random.Next(0, 100) < 5) // 5% chance
+                        {
+                            downTime += random.Next(15, 40);
+                        }
 
                         mouse_event(upEvent, 0, 0, 0, 0);
                         PreciseDelay(upTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
