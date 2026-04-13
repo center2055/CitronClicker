@@ -954,7 +954,7 @@ namespace CitronClicker
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = "https://github.com/center2055/OnionHop",
+                FileName = "https://github.com/center2055/CitronClicker",
                 UseShellExecute = true
             });
         }
