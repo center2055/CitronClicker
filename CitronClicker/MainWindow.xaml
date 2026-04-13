@@ -12,8 +12,8 @@
         <!-- Colors -->
         <SolidColorBrush x:Key="BgColor" Color="#0A0A0A"/>
         <SolidColorBrush x:Key="CardBgColor" Color="#151515"/>
-        <SolidColorBrush x:Key="AccentColor" Color="#FF2A4D"/>
-        <SolidColorBrush x:Key="AccentDarkColor" Color="#B31B33"/>
+        <SolidColorBrush x:Key="AccentColor" Color="#E4F265"/>
+        <SolidColorBrush x:Key="AccentDarkColor" Color="#9CA821"/>
         <SolidColorBrush x:Key="TextColor" Color="#ffffff"/>
         <SolidColorBrush x:Key="SubTextColor" Color="#adaaaa"/>
         <SolidColorBrush x:Key="TrackColor" Color="#333333"/>
@@ -105,7 +105,7 @@
                                             </DoubleAnimation>
                                             <ColorAnimation Storyboard.TargetName="SwitchTrack"
                                                             Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
-                                                            To="#B31B33" Duration="0:0:0.22"/>
+                                                            To="#9CA821" Duration="0:0:0.22"/>
                                             <ColorAnimation Storyboard.TargetName="Knob"
                                                             Storyboard.TargetProperty="(Shape.Fill).(SolidColorBrush.Color)"
                                                             To="#1A1A1A" Duration="0:0:0.22"/>
@@ -141,7 +141,7 @@
         <!-- Custom Button Style -->
         <Style x:Key="SaveButtonStyle" TargetType="Button">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Foreground" Value="#ffffff"/>
+            <Setter Property="Foreground" Value="#141400"/>
             <Setter Property="FontWeight" Value="Black"/>
             <Setter Property="FontSize" Value="18"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -152,8 +152,8 @@
                         <Border CornerRadius="12">
                             <Border.Background>
                                 <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
-                                    <GradientStop Color="#FF2A4D" Offset="0.0"/>
-                                    <GradientStop Color="#FF5E78" Offset="1.0"/>
+                                    <GradientStop Color="#C4D655" Offset="0.0"/>
+                                    <GradientStop Color="#E4F265" Offset="1.0"/>
                                 </LinearGradientBrush>
                             </Border.Background>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -238,7 +238,7 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsChecked" Value="True">
-                    <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
+                    <Setter Property="Foreground" Value="{StaticResource AccentColor}"/>
                     <Setter Property="BorderBrush" Value="{StaticResource AccentColor}"/>
                     <Setter Property="BorderThickness" Value="0,0,0,3"/>
                 </Trigger>
@@ -264,12 +264,12 @@
     <Border Background="{StaticResource BgColor}" CornerRadius="16" ClipToBounds="True">
         <Grid>
             <!-- Blurred Background Ellipses -->
-        <Ellipse Width="500" Height="500" Fill="#FF2A4D" Opacity="0.06" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-50,-50,0" IsHitTestVisible="False">
+        <Ellipse Width="500" Height="500" Fill="#E4F265" Opacity="0.06" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-50,-50,0" IsHitTestVisible="False">
             <Ellipse.Effect>
                 <BlurEffect Radius="120"/>
             </Ellipse.Effect>
         </Ellipse>
-        <Ellipse Width="300" Height="300" Fill="#FF5E78" Opacity="0.04" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-15,0,0,-15" IsHitTestVisible="False">
+        <Ellipse Width="300" Height="300" Fill="#C4D655" Opacity="0.04" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-15,0,0,-15" IsHitTestVisible="False">
             <Ellipse.Effect>
                 <BlurEffect Radius="100"/>
             </Ellipse.Effect>
@@ -313,7 +313,6 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <!-- Tabs -->
@@ -338,7 +337,7 @@
                         <StackPanel Grid.Column="0">
                             <Grid Margin="0,0,0,16">
                                 <TextBlock Text="MIN CPS" FontSize="14" FontWeight="Bold" Foreground="{StaticResource SubTextColor}" VerticalAlignment="Bottom"/>
-                                <TextBlock x:Name="MinCpsText" Text="12" FontSize="28" FontWeight="Black" Foreground="{StaticResource TextColor}" HorizontalAlignment="Right"/>
+                                <TextBlock x:Name="MinCpsText" Text="12" FontSize="28" FontWeight="Black" Foreground="{StaticResource AccentColor}" HorizontalAlignment="Right"/>
                             </Grid>
                             <Slider x:Name="MinCpsSlider" Minimum="1" Maximum="20" Value="12" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Slider_ValueChanged" Style="{StaticResource CustomSlider}"/>
                         </StackPanel>
@@ -347,7 +346,7 @@
                         <StackPanel Grid.Column="2">
                             <Grid Margin="0,0,0,16">
                                 <TextBlock Text="MAX CPS" FontSize="14" FontWeight="Bold" Foreground="{StaticResource SubTextColor}" VerticalAlignment="Bottom"/>
-                                <TextBlock x:Name="MaxCpsText" Text="18" FontSize="28" FontWeight="Black" Foreground="{StaticResource TextColor}" HorizontalAlignment="Right"/>
+                                <TextBlock x:Name="MaxCpsText" Text="18" FontSize="28" FontWeight="Black" Foreground="{StaticResource AccentColor}" HorizontalAlignment="Right"/>
                             </Grid>
                             <Slider x:Name="MaxCpsSlider" Minimum="1" Maximum="20" Value="18" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Slider_ValueChanged" Style="{StaticResource CustomSlider}"/>
                         </StackPanel>
@@ -358,7 +357,6 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="16"/>
-                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
@@ -432,23 +430,8 @@
                             </Grid>
                         </Border>
 
-                        <!-- Combo Mode -->
-                        <Border Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Style="{StaticResource PremiumCardStyle}" Margin="0,16,0,0">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
-                                    <TextBlock Text="COMBO MODE" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextColor}" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="Steadier timing with fewer slow cycles" FontSize="10" Foreground="{StaticResource SubTextColor}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
-                                </StackPanel>
-                                <CheckBox x:Name="ComboModeCheck" Grid.Column="1" IsChecked="False" Style="{StaticResource ToggleSwitchStyle}" VerticalAlignment="Center" Click="ComboModeCheck_Click"/>
-                            </Grid>
-                        </Border>
-
                         <!-- Jitter Intensity Slider -->
-                        <Border x:Name="JitterIntensityCard" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Style="{StaticResource PremiumCardStyle}" Margin="0,16,0,0" Opacity="0" Visibility="Collapsed">
+                        <Border x:Name="JitterIntensityCard" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Style="{StaticResource PremiumCardStyle}" Margin="0,16,0,0" Opacity="0" Visibility="Collapsed">
                             <Border.LayoutTransform>
                                 <ScaleTransform ScaleY="0"/>
                             </Border.LayoutTransform>
@@ -485,10 +468,7 @@
             </Border>
 
             <!-- Footer -->
-            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
-                <TextBlock Text="made for Alexa" Foreground="{StaticResource SubTextColor}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                <Path Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" Fill="{StaticResource AccentColor}" Stretch="Uniform" Width="12" Height="12" Margin="0,0,16,0" VerticalAlignment="Center"/>
-            </StackPanel>
+            <TextBlock Grid.Row="2" Text="made by center2055" Foreground="{StaticResource SubTextColor}" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,16,0,0" VerticalAlignment="Center"/>
         </Grid>
     </Grid>
 </Border>
