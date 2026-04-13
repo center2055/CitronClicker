@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
 namespace CitronClicker
@@ -30,7 +29,6 @@ namespace CitronClicker
         public bool AvoidGui { get; set; } = true;
         public bool Jitter { get; set; } = false;
         public int JitterIntensity { get; set; } = 2;
-        public bool ComboMode { get; set; } = false;
         public int Hotkey { get; set; } = 0;
     }
 
@@ -117,17 +115,21 @@ namespace CitronClicker
             return Path.Combine(folder, "config.json");
         }
 
-        private void SaveConfig()
+        private void SaveConfig(bool showDialogOnSuccess = false)
         {
             try
             {
                 var config = new AppConfig { LeftProfile = leftProfile, RightProfile = rightProfile };
                 string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(GetConfigPath(), json);
+                if (showDialogOnSuccess)
+                {
+                    MessageBox.Show("Configuration Saved!", "Citron Clicker", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
             }
             catch (Exception ex)
             {
-                // Silently fail or log
+                MessageBox.Show("Error saving config: " + ex.Message, "Citron Clicker", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -144,9 +146,6 @@ namespace CitronClicker
                     {
                         if (config.LeftProfile != null) leftProfile = config.LeftProfile;
                         if (config.RightProfile != null) rightProfile = config.RightProfile;
-
-                        leftProfile.ComboMode = false;
-                        rightProfile.ComboMode = false;
                     }
                 }
             }
@@ -284,18 +283,7 @@ namespace CitronClicker
             JitterText.Text = currentProfile.JitterIntensity.ToString();
             MasterToggleCheck.IsChecked = currentProfile.IsEnabled;
 
-            if (currentProfile.Jitter)
-            {
-                JitterIntensityCard.Visibility = Visibility.Visible;
-                JitterIntensityCard.Opacity = 1.0;
-                if (JitterIntensityCard.LayoutTransform is ScaleTransform st) st.ScaleY = 1.0;
-            }
-            else
-            {
-                JitterIntensityCard.Visibility = Visibility.Collapsed;
-                JitterIntensityCard.Opacity = 0.0;
-                if (JitterIntensityCard.LayoutTransform is ScaleTransform st) st.ScaleY = 0.0;
-            }
+            JitterIntensityCard.Visibility = currentProfile.Jitter ? Visibility.Visible : Visibility.Collapsed;
 
             SuspendKeyBtn.Content = VirtualKeyToString(currentProfile.SuspendKey);
             HotkeyBtn.Content = VirtualKeyToString(currentProfile.Hotkey);
@@ -614,6 +602,11 @@ namespace CitronClicker
             this.Close();
         }
 
+        private void SaveBtn_Click(object sender, RoutedEventArgs e)
+        {
+            SaveConfig(showDialogOnSuccess: true);
+        }
+
         private void HotkeyBtn_Click(object sender, RoutedEventArgs e)
         {
             if (isBindingHotkey) return;
@@ -786,49 +779,8 @@ namespace CitronClicker
         {
             if (isUpdatingUI) return;
             currentProfile.Jitter = JitterCheck.IsChecked ?? false;
-            AnimateJitterCard(currentProfile.Jitter);
-            Dispatcher.BeginInvoke((Action)SaveConfig, DispatcherPriority.Background);
-        }
-
-        private void AnimateJitterCard(bool show)
-        {
-            if (JitterIntensityCard == null) return;
-
-            if (show) JitterIntensityCard.Visibility = Visibility.Visible;
-
-            var scaleTransform = JitterIntensityCard.LayoutTransform as ScaleTransform;
-            if (scaleTransform == null)
-            {
-                scaleTransform = new ScaleTransform(1, show ? 0 : 1);
-                JitterIntensityCard.LayoutTransform = scaleTransform;
-            }
-
-            DoubleAnimation scaleAnim = new DoubleAnimation
-            {
-                To = show ? 1.0 : 0.0,
-                Duration = TimeSpan.FromMilliseconds(show ? 220 : 180),
-                FillBehavior = FillBehavior.HoldEnd,
-                EasingFunction = new CubicEase { EasingMode = show ? EasingMode.EaseOut : EasingMode.EaseInOut }
-            };
-
-            DoubleAnimation opacityAnim = new DoubleAnimation
-            {
-                To = show ? 1.0 : 0.0,
-                Duration = TimeSpan.FromMilliseconds(show ? 220 : 180),
-                FillBehavior = FillBehavior.HoldEnd,
-                EasingFunction = new CubicEase { EasingMode = show ? EasingMode.EaseOut : EasingMode.EaseIn }
-            };
-
-            if (!show)
-            {
-                opacityAnim.Completed += (s, ev) =>
-                {
-                    if (!currentProfile.Jitter) JitterIntensityCard.Visibility = Visibility.Collapsed;
-                };
-            }
-
-            scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnim);
-            JitterIntensityCard.BeginAnimation(UIElement.OpacityProperty, opacityAnim);
+            JitterIntensityCard.Visibility = currentProfile.Jitter ? Visibility.Visible : Visibility.Collapsed;
+            SaveConfig();
         }
 
         private void JitterSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -894,7 +846,7 @@ namespace CitronClicker
                             isHolding = false;
                         }
 
-                        var (upTime, downTime) = delayGenerator.GetDelays(profile.MinCps, profile.MaxCps, profile.ComboMode);
+                        var (upTime, downTime) = delayGenerator.GetDelays(profile.MinCps, profile.MaxCps, comboMode: false);
 
                         mouse_event(upEvent, 0, 0, 0, 0);
                         PreciseDelay(upTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
@@ -955,24 +907,6 @@ namespace CitronClicker
             Process.Start(new ProcessStartInfo
             {
                 FileName = "https://github.com/center2055/CitronClicker",
-                UseShellExecute = true
-            });
-        }
-
-        private void DiscordBtn_Click(object sender, RoutedEventArgs e)
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "https://discord.gg/y3MVspPzKQ",
-                UseShellExecute = true
-            });
-        }
-
-        private void KofiBtn_Click(object sender, RoutedEventArgs e)
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "https://ko-fi.com/center2055",
                 UseShellExecute = true
             });
         }
