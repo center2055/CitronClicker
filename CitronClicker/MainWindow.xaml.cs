@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
 namespace CitronClicker
@@ -29,6 +30,7 @@ namespace CitronClicker
         public bool AvoidGui { get; set; } = true;
         public bool Jitter { get; set; } = false;
         public int JitterIntensity { get; set; } = 2;
+        public bool ComboMode { get; set; } = false;
         public int Hotkey { get; set; } = 0;
     }
 
@@ -122,11 +124,10 @@ namespace CitronClicker
                 var config = new AppConfig { LeftProfile = leftProfile, RightProfile = rightProfile };
                 string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(GetConfigPath(), json);
-                MessageBox.Show("Configuration Saved!", "Citron Clicker", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error saving config: " + ex.Message, "Citron Clicker", MessageBoxButton.OK, MessageBoxImage.Error);
+                // Silently fail or log
             }
         }
 
@@ -143,6 +144,9 @@ namespace CitronClicker
                     {
                         if (config.LeftProfile != null) leftProfile = config.LeftProfile;
                         if (config.RightProfile != null) rightProfile = config.RightProfile;
+
+                        leftProfile.ComboMode = false;
+                        rightProfile.ComboMode = false;
                     }
                 }
             }
@@ -173,8 +177,11 @@ namespace CitronClicker
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
-        [DllImport("user32.dll", SetLastError = true)]
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
@@ -186,7 +193,7 @@ namespace CitronClicker
         private bool isBindingHotkey = false;
 
         private CancellationTokenSource cts;
-        private Random random = new Random();
+        private readonly Random random = Random.Shared;
 
         private DispatcherTimer uiTimer;
         private bool isMinecraftRunning = false;
@@ -213,6 +220,9 @@ namespace CitronClicker
             
             isUpdatingUI = true;
             InitializeComponent();
+            
+            ComboModeCheck.Visibility = Visibility.Collapsed;
+
             isUpdatingUI = false;
             
             this.Loaded += MainWindow_Loaded;
@@ -271,12 +281,24 @@ namespace CitronClicker
             MinCpsText.Text = currentProfile.MinCps.ToString();
             MaxCpsText.Text = currentProfile.MaxCps.ToString();
             AvoidGuiCheck.IsChecked = currentProfile.AvoidGui;
+            ComboModeCheck.IsChecked = currentProfile.ComboMode;
             JitterCheck.IsChecked = currentProfile.Jitter;
             JitterSlider.Value = currentProfile.JitterIntensity;
             JitterText.Text = currentProfile.JitterIntensity.ToString();
             MasterToggleCheck.IsChecked = currentProfile.IsEnabled;
 
-            JitterIntensityCard.Visibility = currentProfile.Jitter ? Visibility.Visible : Visibility.Collapsed;
+            if (currentProfile.Jitter)
+            {
+                JitterIntensityCard.Visibility = Visibility.Visible;
+                JitterIntensityCard.Opacity = 1.0;
+                if (JitterIntensityCard.LayoutTransform is ScaleTransform st) st.ScaleY = 1.0;
+            }
+            else
+            {
+                JitterIntensityCard.Visibility = Visibility.Collapsed;
+                JitterIntensityCard.Opacity = 0.0;
+                if (JitterIntensityCard.LayoutTransform is ScaleTransform st) st.ScaleY = 0.0;
+            }
 
             SuspendKeyBtn.Content = VirtualKeyToString(currentProfile.SuspendKey);
             HotkeyBtn.Content = VirtualKeyToString(currentProfile.Hotkey);
@@ -297,23 +319,154 @@ namespace CitronClicker
             UpdateUIFromProfile();
         }
 
-        private void UiTimer_Tick(object sender, EventArgs e)
+        private static bool IsJavaLikeProcessName(string procName)
+        {
+            return string.Equals(procName, "java", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(procName, "javaw", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Third-party / official launcher windows — not the Java or Bedrock game client.</summary>
+        private static bool TitleLooksLikeMinecraftLauncher(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return false;
+            var t = title.ToLowerInvariant();
+            if (t.Contains("hello minecraft")) return true; // HMCL
+            if (t.Contains("minecraft launcher")) return true; // official Java launcher shell
+            if (t.Contains("prism launcher")) return true;
+            if (t.Contains("polymc")) return true;
+            if (t.Contains("multimc")) return true;
+            if (t.Contains("curseforge")) return true;
+            if (t.Contains("curse forge")) return true;
+            if (t.Contains("gdlauncher")) return true;
+            if (t.Contains("modrinth")) return true;
+            if (t.Contains("tlauncher")) return true;
+            if (t.Contains("ftb app")) return true;
+            if (t.Contains("atlauncher")) return true;
+            if (t.Contains("xmplauncher")) return true;
+            if (t.Contains("pcl2")) return true;
+            if (t.Contains("bmcl")) return true;
+            if (t.Contains("winterslash")) return true;
+            return false;
+        }
+
+        private static bool ProcessExeLooksLikeLauncherHost(Process p)
+        {
+            try
+            {
+                string? path = p.MainModule?.FileName;
+                if (string.IsNullOrEmpty(path)) return false;
+                var lower = path.ToLowerInvariant();
+                if (lower.Contains("prismlauncher")) return true;
+                if (lower.Contains("polymc")) return true;
+                if (lower.Contains("multimc")) return true;
+                if (lower.Contains("hmcl")) return true;
+                if (lower.Contains("pcl")) return true;
+                if (lower.Contains("curseforge")) return true;
+                if (lower.Contains("gdlauncher")) return true;
+                if (lower.Contains("modrinth")) return true;
+                if (lower.Contains("tlauncher")) return true;
+            }
+            catch { }
+            return false;
+        }
+
+        private static bool TitleSuggestsMinecraftJava(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return false;
+            if (TitleLooksLikeMinecraftLauncher(title)) return false;
+            var t = title.ToLowerInvariant();
+            if (t.Contains("minecraft")) return true;
+            if (t.Contains("lunar client")) return true;
+            if (t.Contains("badlion")) return true;
+            if (t.Contains("feather")) return true;
+            if (t.Contains("labymod")) return true;
+            if (t.Contains("salwyrr")) return true;
+            if (t.Contains("fml earlyloading")) return true;
+            if (t.Contains("forge")) return true;
+            if (t.Contains("fabric")) return true;
+            if (t.Contains("neoforge")) return true;
+            return false;
+        }
+
+        /// <summary>True if this HWND is the actual Java game client (not HMCL / Prism / etc.). GLFW/LWJGL is the strongest signal.</summary>
+        private static bool WindowLooksLikeMinecraftJavaClient(IntPtr hWnd, Process? owningProcess = null)
+        {
+            if (hWnd == IntPtr.Zero) return false;
+            var titleSb = new StringBuilder(512);
+            GetWindowText(hWnd, titleSb, titleSb.Capacity);
+            string title = titleSb.ToString();
+            if (TitleLooksLikeMinecraftLauncher(title))
+                return false;
+
+            var clsSb = new StringBuilder(256);
+            string cls = "";
+            if (GetClassName(hWnd, clsSb, clsSb.Capacity) > 0)
+                cls = clsSb.ToString();
+
+            bool glfwOrLwjgl = cls.Contains("GLFW", StringComparison.OrdinalIgnoreCase)
+                || cls.Contains("LWJGL", StringComparison.OrdinalIgnoreCase);
+            if (glfwOrLwjgl)
+            {
+                if (owningProcess != null && ProcessExeLooksLikeLauncherHost(owningProcess))
+                    return false;
+                return true;
+            }
+
+            return TitleSuggestsMinecraftJava(title);
+        }
+
+        private static bool BedrockWindowLooksLikeGame(Process p)
+        {
+            if (p.MainWindowHandle == IntPtr.Zero) return false;
+            var titleSb = new StringBuilder(512);
+            GetWindowText(p.MainWindowHandle, titleSb, titleSb.Capacity);
+            if (TitleLooksLikeMinecraftLauncher(titleSb.ToString()))
+                return false;
+            return true;
+        }
+
+        private void UiTimer_Tick(object? sender, EventArgs e)
         {
             bool found = false;
             try
             {
-                Process[] procs = Process.GetProcessesByName("Minecraft.Windows");
-                if (procs.Length > 0) found = true;
-                else
+                foreach (var p in Process.GetProcessesByName("Minecraft.Windows"))
                 {
-                    Process[] javaw = Process.GetProcessesByName("javaw");
-                    foreach (var p in javaw)
+                    try
                     {
-                        if (p.MainWindowTitle.ToLower().Contains("minecraft"))
+                        if (BedrockWindowLooksLikeGame(p)) { found = true; break; }
+                    }
+                    catch { }
+                }
+                if (!found)
+                {
+                    foreach (var p in Process.GetProcessesByName("Minecraft"))
+                    {
+                        try
                         {
-                            found = true;
-                            break;
+                            if (BedrockWindowLooksLikeGame(p)) { found = true; break; }
                         }
+                        catch { }
+                    }
+                }
+                if (!found)
+                {
+                    foreach (string procName in new[] { "javaw", "java" })
+                    {
+                        foreach (var p in Process.GetProcessesByName(procName))
+                        {
+                            try
+                            {
+                                if (p.MainWindowHandle != IntPtr.Zero
+                                    && WindowLooksLikeMinecraftJavaClient(p.MainWindowHandle, p))
+                                {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            catch { }
+                        }
+                        if (found) break;
                     }
                 }
             }
@@ -334,8 +487,8 @@ namespace CitronClicker
             else
             {
                 StatusText.Text = "INJECTED";
-                StatusText.Foreground = new SolidColorBrush(Color.FromRgb(228, 242, 101)); // #e4f265
-                StatusDot.Fill = new SolidColorBrush(Color.FromRgb(228, 242, 101));
+                StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 42, 77)); // #FF2A4D
+                StatusDot.Fill = new SolidColorBrush(Color.FromRgb(255, 42, 77));
             }
         }
 
@@ -405,6 +558,7 @@ namespace CitronClicker
 
             if (MinCpsText != null) MinCpsText.Text = currentProfile.MinCps.ToString();
             if (MaxCpsText != null) MaxCpsText.Text = currentProfile.MaxCps.ToString();
+            SaveConfig();
         }
 
         private void ToggleBtn_Click(object sender, RoutedEventArgs e)
@@ -429,6 +583,7 @@ namespace CitronClicker
             {
                 Dispatcher.Invoke(UpdateStatusText);
             }
+            SaveConfig();
         }
 
         private void MinimizeBtn_Click(object sender, RoutedEventArgs e)
@@ -462,11 +617,6 @@ namespace CitronClicker
             this.Close();
         }
 
-        private void SaveBtn_Click(object sender, RoutedEventArgs e)
-        {
-            SaveConfig();
-        }
-
         private void HotkeyBtn_Click(object sender, RoutedEventArgs e)
         {
             if (isBindingHotkey) return;
@@ -495,6 +645,7 @@ namespace CitronClicker
                 HotkeyBtn.Content = e.Key.ToString();
             }
             e.Handled = true;
+            SaveConfig();
         }
 
         private void OnModuleHotkeyMouseDown(object sender, MouseButtonEventArgs e)
@@ -510,6 +661,7 @@ namespace CitronClicker
                 HotkeyBtn.Content = VirtualKeyToString(vk);
             }
             e.Handled = true;
+            SaveConfig();
         }
 
         private bool IsMinecraftActive()
@@ -520,19 +672,21 @@ namespace CitronClicker
             GetWindowThreadProcessId(hWnd, out uint pid);
             try
             {
-                Process proc = Process.GetProcessById((int)pid);
-                string procName = proc.ProcessName.ToLower();
+                using Process proc = Process.GetProcessById((int)pid);
+                string procName = proc.ProcessName;
 
-                if (procName.Contains("minecraft.windows"))
-                    return true;
-
-                if (procName.Contains("javaw"))
+                if (procName.Equals("Minecraft.Windows", StringComparison.OrdinalIgnoreCase)
+                    || procName.Equals("Minecraft", StringComparison.OrdinalIgnoreCase))
                 {
-                    StringBuilder sb = new StringBuilder(256);
-                    GetWindowText(hWnd, sb, 256);
-                    if (sb.ToString().ToLower().Contains("minecraft"))
-                        return true;
+                    var titleSb = new StringBuilder(512);
+                    GetWindowText(hWnd, titleSb, titleSb.Capacity);
+                    return !TitleLooksLikeMinecraftLauncher(titleSb.ToString());
                 }
+
+                if (!IsJavaLikeProcessName(procName))
+                    return false;
+
+                return WindowLooksLikeMinecraftJavaClient(hWnd, proc);
             }
             catch { }
 
@@ -600,6 +754,7 @@ namespace CitronClicker
                 SuspendKeyBtn.Content = e.Key.ToString();
             }
             e.Handled = true;
+            SaveConfig();
         }
 
         private void OnSuspendMouseDown(object sender, MouseButtonEventArgs e)
@@ -615,6 +770,7 @@ namespace CitronClicker
                 SuspendKeyBtn.Content = VirtualKeyToString(vk);
             }
             e.Handled = true;
+            SaveConfig();
         }
 
         private void BlockBreakingCheck_Click(object sender, RoutedEventArgs e)
@@ -626,13 +782,63 @@ namespace CitronClicker
         {
             if (isUpdatingUI) return;
             currentProfile.AvoidGui = AvoidGuiCheck.IsChecked ?? false;
+            SaveConfig();
+        }
+
+        private void ComboModeCheck_Click(object sender, RoutedEventArgs e)
+        {
+            if (isUpdatingUI) return;
+            currentProfile.ComboMode = ComboModeCheck.IsChecked ?? false;
+            SaveConfig();
         }
 
         private void JitterCheck_Click(object sender, RoutedEventArgs e)
         {
             if (isUpdatingUI) return;
             currentProfile.Jitter = JitterCheck.IsChecked ?? false;
-            JitterIntensityCard.Visibility = currentProfile.Jitter ? Visibility.Visible : Visibility.Collapsed;
+            AnimateJitterCard(currentProfile.Jitter);
+            Dispatcher.BeginInvoke((Action)SaveConfig, DispatcherPriority.Background);
+        }
+
+        private void AnimateJitterCard(bool show)
+        {
+            if (JitterIntensityCard == null) return;
+
+            if (show) JitterIntensityCard.Visibility = Visibility.Visible;
+
+            var scaleTransform = JitterIntensityCard.LayoutTransform as ScaleTransform;
+            if (scaleTransform == null)
+            {
+                scaleTransform = new ScaleTransform(1, show ? 0 : 1);
+                JitterIntensityCard.LayoutTransform = scaleTransform;
+            }
+
+            DoubleAnimation scaleAnim = new DoubleAnimation
+            {
+                To = show ? 1.0 : 0.0,
+                Duration = TimeSpan.FromMilliseconds(show ? 220 : 180),
+                FillBehavior = FillBehavior.HoldEnd,
+                EasingFunction = new CubicEase { EasingMode = show ? EasingMode.EaseOut : EasingMode.EaseInOut }
+            };
+
+            DoubleAnimation opacityAnim = new DoubleAnimation
+            {
+                To = show ? 1.0 : 0.0,
+                Duration = TimeSpan.FromMilliseconds(show ? 220 : 180),
+                FillBehavior = FillBehavior.HoldEnd,
+                EasingFunction = new CubicEase { EasingMode = show ? EasingMode.EaseOut : EasingMode.EaseIn }
+            };
+
+            if (!show)
+            {
+                opacityAnim.Completed += (s, ev) =>
+                {
+                    if (!currentProfile.Jitter) JitterIntensityCard.Visibility = Visibility.Collapsed;
+                };
+            }
+
+            scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnim);
+            JitterIntensityCard.BeginAnimation(UIElement.OpacityProperty, opacityAnim);
         }
 
         private void JitterSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -641,6 +847,7 @@ namespace CitronClicker
             if (JitterSlider == null || JitterText == null) return;
             currentProfile.JitterIntensity = (int)JitterSlider.Value;
             JitterText.Text = currentProfile.JitterIntensity.ToString();
+            SaveConfig();
         }
 
         private void PreciseDelay(int delayMs, Func<bool> condition, CancellationToken token)
@@ -661,6 +868,7 @@ namespace CitronClicker
             long btnDownTime = 0;
             bool isHolding = false;
             bool wasClicking = false;
+            HumanizedDelayGenerator delayGenerator = new HumanizedDelayGenerator();
 
             while (!token.IsCancellationRequested)
             {
@@ -696,21 +904,7 @@ namespace CitronClicker
                             isHolding = false;
                         }
 
-                        double currentCps = profile.MinCps + (random.NextDouble() * (profile.MaxCps - profile.MinCps));
-                        int baseCycleTime = (int)(1000.0 / currentCps);
-                        
-                        // Add organic noise to the cycle time
-                        int noise = random.Next(-8, 9);
-                        int totalCycleTime = Math.Max(20, baseCycleTime + noise);
-
-                        int upTime = random.Next(10, Math.Max(15, totalCycleTime / 2));
-                        int downTime = totalCycleTime - upTime;
-
-                        // Occasional extra delay to simulate human inconsistency (drop-offs)
-                        if (random.Next(0, 100) < 5) // 5% chance
-                        {
-                            downTime += random.Next(15, 40);
-                        }
+                        var (upTime, downTime) = delayGenerator.GetDelays(profile.MinCps, profile.MaxCps, profile.ComboMode);
 
                         mouse_event(upEvent, 0, 0, 0, 0);
                         PreciseDelay(upTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
