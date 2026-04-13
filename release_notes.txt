@@ -1,0 +1,3 @@
+Changelog:
+* Improved click randomization to bypass server anticheats (like The Hive)
+* Added organic noise and human-like click drop-offs

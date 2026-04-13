@@ -1,7 +1,7 @@
 <Window x:Class="CitronClicker.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="CitronClicker" SizeToContent="Height" Width="576"
+        Title="Citron Clicker" SizeToContent="Height" Width="576"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
@@ -10,15 +10,15 @@
     
     <Window.Resources>
         <!-- Colors -->
-        <SolidColorBrush x:Key="BgColor" Color="#0e0e0e"/>
-        <SolidColorBrush x:Key="CardBgColor" Color="#66262626"/> <!-- rgba(38, 38, 38, 0.4) -->
-        <SolidColorBrush x:Key="AccentColor" Color="#e4f265"/>
-        <SolidColorBrush x:Key="AccentDarkColor" Color="#9ca821"/>
+        <SolidColorBrush x:Key="BgColor" Color="#0A0A0A"/>
+        <SolidColorBrush x:Key="CardBgColor" Color="#151515"/>
+        <SolidColorBrush x:Key="AccentColor" Color="#FF2A4D"/>
+        <SolidColorBrush x:Key="AccentDarkColor" Color="#B31B33"/>
         <SolidColorBrush x:Key="TextColor" Color="#ffffff"/>
         <SolidColorBrush x:Key="SubTextColor" Color="#adaaaa"/>
-        <SolidColorBrush x:Key="TrackColor" Color="#484847"/>
-        <SolidColorBrush x:Key="ItemBgColor" Color="#1a1a1a"/>
-        <SolidColorBrush x:Key="ItemHoverBgColor" Color="#20201f"/>
+        <SolidColorBrush x:Key="TrackColor" Color="#333333"/>
+        <SolidColorBrush x:Key="ItemBgColor" Color="#222222"/>
+        <SolidColorBrush x:Key="ItemHoverBgColor" Color="#2A2A2A"/>
         
         <!-- Custom Slider Style -->
         <Style x:Key="CustomSlider" TargetType="Slider">
@@ -33,7 +33,7 @@
                                 <RowDefinition Height="Auto" MinHeight="{TemplateBinding MinHeight}"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
-                            <Border x:Name="TrackBackground" Grid.Row="1" Height="4" Background="#333333" CornerRadius="2" VerticalAlignment="Center"/>
+                            <Border x:Name="TrackBackground" Grid.Row="1" Height="6" Background="#333333" CornerRadius="3" VerticalAlignment="Center"/>
                             <Track x:Name="PART_Track" Grid.Row="1">
                                 <Track.DecreaseRepeatButton>
                                     <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Background="{StaticResource AccentColor}" Style="{DynamicResource SliderRepeatButtonStyle}"/>
@@ -42,10 +42,10 @@
                                     <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Background="Transparent" Style="{DynamicResource SliderRepeatButtonStyle}"/>
                                 </Track.IncreaseRepeatButton>
                                 <Track.Thumb>
-                                    <Thumb x:Name="Thumb" Width="16" Height="16" Background="{StaticResource AccentColor}">
+                                    <Thumb x:Name="Thumb" Width="20" Height="20" Background="{StaticResource AccentColor}">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="Thumb">
-                                                <Ellipse Fill="{TemplateBinding Background}" Stroke="#0e0e0e" StrokeThickness="2"/>
+                                                <Ellipse Fill="{TemplateBinding Background}" Stroke="#0A0A0A" StrokeThickness="3"/>
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
@@ -64,27 +64,73 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="RepeatButton">
-                        <Border Background="{TemplateBinding Background}" Height="4" CornerRadius="2"/>
+                        <Border Background="{TemplateBinding Background}" Height="6" CornerRadius="3"/>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <!-- Custom Toggle Switch Style -->
+        <!-- Toggle: animate only template-named Knob + SwitchTrack (never name the TranslateTransform; storyboards target Knob's transform path). -->
         <Style x:Key="ToggleSwitchStyle" TargetType="CheckBox">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
                         <Grid Width="44" Height="24">
-                            <Border x:Name="Border" CornerRadius="12" Background="#484847"/>
-                            <Ellipse x:Name="Knob" Width="16" Height="16" Fill="#adaaaa" HorizontalAlignment="Left" Margin="4"/>
+                            <Border x:Name="SwitchTrack" CornerRadius="12">
+                                <Border.Background>
+                                    <SolidColorBrush Color="#333333"/>
+                                </Border.Background>
+                            </Border>
+                            <Ellipse x:Name="Knob" Width="16" Height="16" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="4,0,0,0">
+                                <Ellipse.Fill>
+                                    <SolidColorBrush Color="#adaaaa"/>
+                                </Ellipse.Fill>
+                                <Ellipse.RenderTransform>
+                                    <TranslateTransform X="0"/>
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="{StaticResource AccentDarkColor}"/>
-                                <Setter TargetName="Knob" Property="Fill" Value="#212500"/>
-                                <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right"/>
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="Knob"
+                                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
+                                                             To="20" Duration="0:0:0.22" FillBehavior="HoldEnd">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <CubicEase EasingMode="EaseInOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <ColorAnimation Storyboard.TargetName="SwitchTrack"
+                                                            Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
+                                                            To="#B31B33" Duration="0:0:0.22"/>
+                                            <ColorAnimation Storyboard.TargetName="Knob"
+                                                            Storyboard.TargetProperty="(Shape.Fill).(SolidColorBrush.Color)"
+                                                            To="#1A1A1A" Duration="0:0:0.22"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="Knob"
+                                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
+                                                             To="0" Duration="0:0:0.22" FillBehavior="HoldEnd">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <CubicEase EasingMode="EaseInOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <ColorAnimation Storyboard.TargetName="SwitchTrack"
+                                                            Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
+                                                            To="#333333" Duration="0:0:0.22"/>
+                                            <ColorAnimation Storyboard.TargetName="Knob"
+                                                            Storyboard.TargetProperty="(Shape.Fill).(SolidColorBrush.Color)"
+                                                            To="#adaaaa" Duration="0:0:0.22"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -95,7 +141,7 @@
         <!-- Custom Button Style -->
         <Style x:Key="SaveButtonStyle" TargetType="Button">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Foreground" Value="#212500"/>
+            <Setter Property="Foreground" Value="#ffffff"/>
             <Setter Property="FontWeight" Value="Black"/>
             <Setter Property="FontSize" Value="18"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -103,11 +149,11 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border CornerRadius="8">
+                        <Border CornerRadius="12">
                             <Border.Background>
                                 <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
-                                    <GradientStop Color="#e4f265" Offset="0.0"/>
-                                    <GradientStop Color="#9ca821" Offset="1.0"/>
+                                    <GradientStop Color="#FF2A4D" Offset="0.0"/>
+                                    <GradientStop Color="#FF5E78" Offset="1.0"/>
                                 </LinearGradientBrush>
                             </Border.Background>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -124,17 +170,17 @@
 
         <Style x:Key="HotkeyButtonStyle" TargetType="Button">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Background" Value="#262626"/>
+            <Setter Property="Background" Value="#1A1A1A"/>
             <Setter Property="Foreground" Value="{StaticResource AccentColor}"/>
             <Setter Property="FontWeight" Value="Black"/>
-            <Setter Property="BorderBrush" Value="#484847"/>
+            <Setter Property="BorderBrush" Value="#333333"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="12,8"/>
             <Setter Property="MinWidth" Value="60"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
                         </Border>
                     </ControlTemplate>
@@ -142,7 +188,7 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#2c2c2c"/>
+                    <Setter Property="Background" Value="#2A2A2A"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -175,7 +221,7 @@
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="{StaticResource SubTextColor}"/>
             <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0,0,0,2"/>
+            <Setter Property="BorderThickness" Value="0,0,0,3"/>
             <Setter Property="FontWeight" Value="Black"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -192,26 +238,38 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsChecked" Value="True">
-                    <Setter Property="Foreground" Value="{StaticResource AccentColor}"/>
+                    <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
                     <Setter Property="BorderBrush" Value="{StaticResource AccentColor}"/>
-                    <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                    <Setter Property="BorderThickness" Value="0,0,0,3"/>
                 </Trigger>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Foreground" Value="{StaticResource TextColor}"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- Premium Card Style -->
+        <Style x:Key="PremiumCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource ItemBgColor}"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="20"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ItemHoverBgColor}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
-    <Border Background="{StaticResource BgColor}" CornerRadius="12" ClipToBounds="True">
+    <Border Background="{StaticResource BgColor}" CornerRadius="16" ClipToBounds="True">
         <Grid>
             <!-- Blurred Background Ellipses -->
-        <Ellipse Width="500" Height="500" Fill="#e4f265" Opacity="0.03" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-50,-50,0" IsHitTestVisible="False">
+        <Ellipse Width="500" Height="500" Fill="#FF2A4D" Opacity="0.06" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-50,-50,0" IsHitTestVisible="False">
             <Ellipse.Effect>
                 <BlurEffect Radius="120"/>
             </Ellipse.Effect>
         </Ellipse>
-        <Ellipse Width="300" Height="300" Fill="#fae44c" Opacity="0.02" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-15,0,0,-15" IsHitTestVisible="False">
+        <Ellipse Width="300" Height="300" Fill="#FF5E78" Opacity="0.04" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-15,0,0,-15" IsHitTestVisible="False">
             <Ellipse.Effect>
                 <BlurEffect Radius="100"/>
             </Ellipse.Effect>
@@ -233,13 +291,14 @@
                 </Grid.ColumnDefinitions>
                 
                 <StackPanel Grid.Column="0" Orientation="Horizontal">
-                    <TextBlock Text="Citron Clicker" FontSize="24" FontWeight="Black" Foreground="{StaticResource AccentColor}" VerticalAlignment="Center"/>
+                    <Image Source="pack://application:,,,/citron_icon.png" Width="28" Height="28" Margin="0,0,12,0" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <TextBlock Text="Citron Clicker" FontSize="24" FontWeight="Black" Foreground="{StaticResource TextColor}" VerticalAlignment="Center"/>
                 </StackPanel>
                 
                 <!-- Active Indicator -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                     <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{StaticResource SubTextColor}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="StatusText" Text="INACTIVE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource SubTextColor}" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                    <TextBlock x:Name="StatusText" Text="WAITING FOR MC" FontSize="12" FontWeight="Bold" Foreground="{StaticResource SubTextColor}" VerticalAlignment="Center" Margin="0,0,16,0"/>
 
                     <Button Content="—" Style="{StaticResource WindowButtonStyle}" Margin="0,0,4,0" Click="MinimizeBtn_Click"/>
                     <Button Content="✕" Style="{StaticResource WindowButtonStyle}" Click="CloseBtn_Click"/>
@@ -247,7 +306,7 @@
             </Grid>
 
             <!-- Main Card -->
-            <Border Grid.Row="1" Background="{StaticResource CardBgColor}" CornerRadius="12">
+            <Border Grid.Row="1" Background="{StaticResource CardBgColor}" CornerRadius="16" BorderBrush="#222222" BorderThickness="1">
                 <Grid Margin="32">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -279,26 +338,18 @@
                         <StackPanel Grid.Column="0">
                             <Grid Margin="0,0,0,16">
                                 <TextBlock Text="MIN CPS" FontSize="14" FontWeight="Bold" Foreground="{StaticResource SubTextColor}" VerticalAlignment="Bottom"/>
-                                <TextBlock x:Name="MinCpsText" Text="12" FontSize="24" FontWeight="Black" Foreground="{StaticResource AccentColor}" HorizontalAlignment="Right"/>
+                                <TextBlock x:Name="MinCpsText" Text="12" FontSize="28" FontWeight="Black" Foreground="{StaticResource TextColor}" HorizontalAlignment="Right"/>
                             </Grid>
                             <Slider x:Name="MinCpsSlider" Minimum="1" Maximum="20" Value="12" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Slider_ValueChanged" Style="{StaticResource CustomSlider}"/>
-                            <Grid Margin="0,8,0,0">
-                                <TextBlock Text="1" FontSize="10" FontWeight="Bold" Foreground="#767575" HorizontalAlignment="Left"/>
-                                <TextBlock Text="20" FontSize="10" FontWeight="Bold" Foreground="#767575" HorizontalAlignment="Right"/>
-                            </Grid>
                         </StackPanel>
 
                         <!-- Max CPS -->
                         <StackPanel Grid.Column="2">
                             <Grid Margin="0,0,0,16">
                                 <TextBlock Text="MAX CPS" FontSize="14" FontWeight="Bold" Foreground="{StaticResource SubTextColor}" VerticalAlignment="Bottom"/>
-                                <TextBlock x:Name="MaxCpsText" Text="18" FontSize="24" FontWeight="Black" Foreground="{StaticResource AccentColor}" HorizontalAlignment="Right"/>
+                                <TextBlock x:Name="MaxCpsText" Text="18" FontSize="28" FontWeight="Black" Foreground="{StaticResource TextColor}" HorizontalAlignment="Right"/>
                             </Grid>
                             <Slider x:Name="MaxCpsSlider" Minimum="1" Maximum="20" Value="18" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Slider_ValueChanged" Style="{StaticResource CustomSlider}"/>
-                            <Grid Margin="0,8,0,0">
-                                <TextBlock Text="1" FontSize="10" FontWeight="Bold" Foreground="#767575" HorizontalAlignment="Left"/>
-                                <TextBlock Text="20" FontSize="10" FontWeight="Bold" Foreground="#767575" HorizontalAlignment="Right"/>
-                            </Grid>
                         </StackPanel>
                     </Grid>
 
@@ -308,7 +359,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="16"/>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="16"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
@@ -318,7 +369,7 @@
                         </Grid.ColumnDefinitions>
 
                         <!-- Suspend Key -->
-                        <Border x:Name="SuspendKeyCard" Grid.Row="0" Grid.Column="0" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20">
+                        <Border x:Name="SuspendKeyCard" Grid.Row="0" Grid.Column="0" Style="{StaticResource PremiumCardStyle}">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -335,7 +386,7 @@
                         </Border>
 
                         <!-- Module Hotkey -->
-                        <Border Grid.Row="0" Grid.Column="2" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20">
+                        <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource PremiumCardStyle}">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -352,7 +403,7 @@
                         </Border>
 
                         <!-- Avoid GUI -->
-                        <Border Grid.Row="2" Grid.Column="0" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20">
+                        <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource PremiumCardStyle}">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -367,7 +418,7 @@
                         </Border>
 
                         <!-- Jitter Toggle -->
-                        <Border Grid.Row="2" Grid.Column="2" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20">
+                        <Border Grid.Row="2" Grid.Column="2" Style="{StaticResource PremiumCardStyle}">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -381,8 +432,26 @@
                             </Grid>
                         </Border>
 
+                        <!-- Combo Mode -->
+                        <Border Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Style="{StaticResource PremiumCardStyle}" Margin="0,16,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
+                                    <TextBlock Text="COMBO MODE" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextColor}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="Steadier timing with fewer slow cycles" FontSize="10" Foreground="{StaticResource SubTextColor}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                <CheckBox x:Name="ComboModeCheck" Grid.Column="1" IsChecked="False" Style="{StaticResource ToggleSwitchStyle}" VerticalAlignment="Center" Click="ComboModeCheck_Click"/>
+                            </Grid>
+                        </Border>
+
                         <!-- Jitter Intensity Slider -->
-                        <Border x:Name="JitterIntensityCard" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20">
+                        <Border x:Name="JitterIntensityCard" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Style="{StaticResource PremiumCardStyle}" Margin="0,16,0,0" Opacity="0" Visibility="Collapsed">
+                            <Border.LayoutTransform>
+                                <ScaleTransform ScaleY="0"/>
+                            </Border.LayoutTransform>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
@@ -399,7 +468,7 @@
                     </Grid>
 
                     <!-- Master Toggle -->
-                    <Border Grid.Row="3" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20" Margin="0,0,0,24">
+                    <Border Grid.Row="3" Style="{StaticResource PremiumCardStyle}" Margin="0,0,0,0">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -412,29 +481,13 @@
                             <CheckBox x:Name="MasterToggleCheck" Grid.Column="1" Style="{StaticResource ToggleSwitchStyle}" VerticalAlignment="Center" Click="MasterToggleCheck_Click"/>
                         </Grid>
                     </Border>
-
-                    <!-- Bottom Button -->
-                    <Border Grid.Row="4" BorderBrush="#484847" BorderThickness="0,1,0,0" Padding="0,24,0,0">
-                        <Button Content="SAVE CONFIGURATION" Style="{StaticResource SaveButtonStyle}" Click="SaveBtn_Click"/>
-                    </Border>
                 </Grid>
             </Border>
 
             <!-- Footer -->
             <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
-                <TextBlock Text="made by center2055" Foreground="{StaticResource SubTextColor}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <Button Style="{StaticResource WindowButtonStyle}" Click="GithubBtn_Click" ToolTip="https://github.com/center2055/OnionHop" Margin="0,0,4,0">
-                    <Path Data="M12,2C6.477,2 2,6.477 2,12C2,16.418 4.865,20.166 8.839,21.49C9.339,21.582 9.521,21.274 9.521,21.007C9.521,20.767 9.512,19.988 9.508,18.824C6.728,19.428 6.141,17.67 6.141,17.67C5.686,16.515 5.03,16.207 5.03,16.207C4.122,15.586 5.101,15.598 5.101,15.598C6.105,15.668 6.633,16.629 6.633,16.629C7.525,18.158 8.97,17.717 9.54,17.46C9.63,16.814 9.889,16.374 10.176,16.121C7.957,15.869 5.626,15.011 5.626,11.476C5.626,10.468 5.986,9.643 6.58,8.997C6.484,8.744 6.166,7.806 6.671,6.516C6.671,6.516 7.448,6.268 9.498,7.653C10.235,7.448 11.026,7.346 11.813,7.342C12.599,7.346 13.39,7.448 14.128,7.653C16.177,6.268 16.953,6.516 16.953,6.516C17.459,7.806 17.141,8.744 17.046,8.997C17.641,9.643 18,10.468 18,11.476C18,15.022 15.665,15.865 13.438,16.112C13.798,16.422 14.119,17.034 14.119,17.986C14.119,19.351 14.11,20.453 14.11,20.767C14.11,21.036 14.291,21.344 14.791,21.248C18.765,19.914 21.631,16.166 21.631,12C21.631,6.477 17.154,2 11.631,2H12Z" 
-                          Fill="{Binding Path=Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Stretch="Uniform" Width="16" Height="16"/>
-                </Button>
-                <Button Style="{StaticResource WindowButtonStyle}" Click="DiscordBtn_Click" ToolTip="https://discord.gg/y3MVspPzKQ" Margin="0,0,4,0">
-                    <Path Data="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.33-.35-.76-.53-1.09a.09.09 0 0 0-.07-.03c-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.03.01.06 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.26.04.03.04.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.32.61.68 1.19 1.07 1.74.03.03.06.04.09.02 1.72-.53 3.45-1.33 5.25-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02zM8.52 14.91c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.83 2.12-1.89 2.12z" 
-                          Fill="{Binding Path=Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Stretch="Uniform" Width="16" Height="16"/>
-                </Button>
-                <Button Style="{StaticResource WindowButtonStyle}" Click="KofiBtn_Click" ToolTip="https://ko-fi.com/center2055">
-                    <Path Data="M23.881 8.948c-.773-4.085-4.859-4.593-4.859-4.593H.723c-.604 0-.679.798-.679.798s-.082 7.324-.022 11.822c.164 2.424 2.586 2.672 2.586 2.672s8.267-.023 11.966-.049c2.438-.426 2.683-2.566 2.658-3.734 4.352.24 7.422-2.831 6.649-6.916zm-11.062 3.511c-1.246 1.453-4.011 3.976-4.011 3.976s-.121.119-.31.023c-.076-.057-.108-.09-.108-.09-.443-.441-3.368-3.049-4.034-3.954-.709-.965-1.041-2.7-.091-3.71.951-1.01 3.005-1.086 4.363.407 0 0 1.565-1.782 3.468-.963 1.904.82 1.832 3.011.723 4.311zm6.173.478c-.928.116-1.682.028-1.682.028V7.284h1.77s1.971.551 1.971 2.638c0 1.913-.985 2.667-2.059 3.015z" 
-                          Fill="{Binding Path=Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Stretch="Uniform" Width="16" Height="16"/>
-                </Button>
+                <TextBlock Text="made for Alexa" Foreground="{StaticResource SubTextColor}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <Path Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" Fill="{StaticResource AccentColor}" Stretch="Uniform" Width="12" Height="12" Margin="0,0,16,0" VerticalAlignment="Center"/>
             </StackPanel>
         </Grid>
     </Grid>

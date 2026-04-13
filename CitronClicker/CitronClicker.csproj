@@ -6,7 +6,14 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <ApplicationIcon>..\..\assets\branding\citron-icon.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>..\assets\branding\citron-icon.ico</ApplicationIcon>
+    <AssemblyName>Citron Clicker</AssemblyName>
+    <RootNamespace>CitronClicker</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="..\assets\branding\citron-icon.png" Link="citron_icon.png" />
+  </ItemGroup>
 
 </Project>
