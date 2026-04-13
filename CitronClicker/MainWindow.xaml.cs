@@ -220,8 +220,6 @@ namespace CitronClicker
             
             isUpdatingUI = true;
             InitializeComponent();
-            
-            ComboModeCheck.Visibility = Visibility.Collapsed;
 
             isUpdatingUI = false;
             
@@ -281,7 +279,6 @@ namespace CitronClicker
             MinCpsText.Text = currentProfile.MinCps.ToString();
             MaxCpsText.Text = currentProfile.MaxCps.ToString();
             AvoidGuiCheck.IsChecked = currentProfile.AvoidGui;
-            ComboModeCheck.IsChecked = currentProfile.ComboMode;
             JitterCheck.IsChecked = currentProfile.Jitter;
             JitterSlider.Value = currentProfile.JitterIntensity;
             JitterText.Text = currentProfile.JitterIntensity.ToString();
@@ -487,8 +484,8 @@ namespace CitronClicker
             else
             {
                 StatusText.Text = "INJECTED";
-                StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 42, 77)); // #FF2A4D
-                StatusDot.Fill = new SolidColorBrush(Color.FromRgb(255, 42, 77));
+                StatusText.Foreground = new SolidColorBrush(Color.FromRgb(228, 242, 101)); // #E4F265
+                StatusDot.Fill = new SolidColorBrush(Color.FromRgb(228, 242, 101));
             }
         }
 
@@ -782,13 +779,6 @@ namespace CitronClicker
         {
             if (isUpdatingUI) return;
             currentProfile.AvoidGui = AvoidGuiCheck.IsChecked ?? false;
-            SaveConfig();
-        }
-
-        private void ComboModeCheck_Click(object sender, RoutedEventArgs e)
-        {
-            if (isUpdatingUI) return;
-            currentProfile.ComboMode = ComboModeCheck.IsChecked ?? false;
             SaveConfig();
         }
 
