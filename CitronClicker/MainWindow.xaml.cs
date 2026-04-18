@@ -40,6 +40,31 @@ namespace CitronClicker
         private const int WM_MOUSEMOVE = 0x0200;
         private const uint LLMHF_INJECTED = 0x00000001;
         private const uint MOUSEEVENTF_MOVE = 0x0001;
+        private const int INPUT_MOUSE = 0;
+
+        /// <summary>Serializes synthetic mouse from the two clicker tasks; interleaved mouse_event/SendInput can destabilize UWP (Bedrock).</summary>
+        private static readonly object SyntheticMouseLock = new object();
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MOUSEINPUT
+        {
+            public int dx;
+            public int dy;
+            public uint mouseData;
+            public uint dwFlags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct INPUT
+        {
+            public uint type;
+            public MOUSEINPUT mi;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MSLLHOOKSTRUCT
@@ -169,9 +194,6 @@ namespace CitronClicker
 
         [DllImport("user32.dll")]
         private static extern short GetAsyncKeyState(int vKey);
-
-        [DllImport("user32.dll")]
-        private static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
@@ -683,6 +705,56 @@ namespace CitronClicker
             return false;
         }
 
+        private static bool IsForegroundBedrock()
+        {
+            IntPtr hWnd = GetForegroundWindow();
+            if (hWnd == IntPtr.Zero) return false;
+            GetWindowThreadProcessId(hWnd, out uint pid);
+            try
+            {
+                using Process proc = Process.GetProcessById((int)pid);
+                return proc.ProcessName.Equals("Minecraft.Windows", StringComparison.OrdinalIgnoreCase)
+                    || proc.ProcessName.Equals("Minecraft", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Bedrock (UWP) is sensitive to ultra-tight synthetic click phases and deprecated mouse_event injection.</summary>
+        private static void ClampBedrockDelays(ref int upTime, ref int downTime)
+        {
+            const int minPhaseMs = 8;
+            const int minFrameMs = 24;
+            upTime = Math.Max(upTime, minPhaseMs);
+            downTime = Math.Max(downTime, minPhaseMs);
+            int frame = upTime + downTime;
+            if (frame < minFrameMs)
+                downTime += minFrameMs - frame;
+        }
+
+        private static readonly int InputSizeBytes = Marshal.SizeOf(typeof(INPUT));
+
+        private static void SendSyntheticMouse(uint dwFlags, int dx = 0, int dy = 0)
+        {
+            var mi = new MOUSEINPUT
+            {
+                dx = dx,
+                dy = dy,
+                mouseData = 0,
+                dwFlags = dwFlags,
+                time = 0,
+                dwExtraInfo = IntPtr.Zero
+            };
+            var input = new INPUT { type = INPUT_MOUSE, mi = mi };
+            var batch = new[] { input };
+            lock (SyntheticMouseLock)
+            {
+                SendInput(1, batch, InputSizeBytes);
+            }
+        }
+
         private async Task HotkeyLoop(CancellationToken token)
         {
             bool leftWasPressed = true; // Initialize to true so it requires a release first
@@ -847,9 +919,13 @@ namespace CitronClicker
                         }
 
                         var (upTime, downTime) = delayGenerator.GetDelays(profile.MinCps, profile.MaxCps, comboMode: false);
+                        int ut = upTime;
+                        int dt = downTime;
+                        if (IsForegroundBedrock())
+                            ClampBedrockDelays(ref ut, ref dt);
 
-                        mouse_event(upEvent, 0, 0, 0, 0);
-                        PreciseDelay(upTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
+                        SendSyntheticMouse(upEvent);
+                        PreciseDelay(ut, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
                         
                         // Check if user released during the delay
                         bool stillDown = profile.IsLeft ? physicalLmbDown : physicalRmbDown;
@@ -859,23 +935,24 @@ namespace CitronClicker
                             continue;
                         }
 
-                        mouse_event(downEvent, 0, 0, 0, 0);
+                        SendSyntheticMouse(downEvent);
                         
                         if (profile.Jitter)
                         {
                             int jx = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
                             int jy = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
-                            mouse_event(MOUSEEVENTF_MOVE, (uint)jx, (uint)jy, 0, 0);
+                            if (jx != 0 || jy != 0)
+                                SendSyntheticMouse(MOUSEEVENTF_MOVE, jx, jy);
                         }
 
-                        PreciseDelay(downTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
+                        PreciseDelay(dt, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
                     }
                     else
                     {
                         btnDownTime = 0;
                         if (wasClicking || isHolding)
                         {
-                            mouse_event(upEvent, 0, 0, 0, 0);
+                            SendSyntheticMouse(upEvent);
                             isHolding = false;
                             wasClicking = false;
                         }
@@ -887,7 +964,7 @@ namespace CitronClicker
                     btnDownTime = 0;
                     if (wasClicking || isHolding)
                     {
-                        mouse_event(upEvent, 0, 0, 0, 0);
+                        SendSyntheticMouse(upEvent);
                         isHolding = false;
                         wasClicking = false;
                     }
