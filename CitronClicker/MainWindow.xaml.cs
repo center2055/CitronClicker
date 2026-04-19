@@ -29,6 +29,8 @@ namespace CitronClicker
         public bool AvoidGui { get; set; } = true;
         public bool Jitter { get; set; } = false;
         public int JitterIntensity { get; set; } = 2;
+        /// <summary>Steady ±3ms timing for accessibility. When false, full statistical delay path (bypass / pentest profile).</summary>
+        public bool AccessibilityMode { get; set; }
         public int Hotkey { get; set; } = 0;
     }
 
@@ -300,6 +302,7 @@ namespace CitronClicker
             MinCpsText.Text = currentProfile.MinCps.ToString();
             MaxCpsText.Text = currentProfile.MaxCps.ToString();
             AvoidGuiCheck.IsChecked = currentProfile.AvoidGui;
+            AccessibilityModeCheck.IsChecked = currentProfile.AccessibilityMode;
             JitterCheck.IsChecked = currentProfile.Jitter;
             JitterSlider.Value = currentProfile.JitterIntensity;
             JitterText.Text = currentProfile.JitterIntensity.ToString();
@@ -519,6 +522,7 @@ namespace CitronClicker
 
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
+            // Never block here — UWP (Bedrock) relies on the message pump; always chain immediately.
             if (nCode >= 0)
             {
                 MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
@@ -705,35 +709,6 @@ namespace CitronClicker
             return false;
         }
 
-        private static bool IsForegroundBedrock()
-        {
-            IntPtr hWnd = GetForegroundWindow();
-            if (hWnd == IntPtr.Zero) return false;
-            GetWindowThreadProcessId(hWnd, out uint pid);
-            try
-            {
-                using Process proc = Process.GetProcessById((int)pid);
-                return proc.ProcessName.Equals("Minecraft.Windows", StringComparison.OrdinalIgnoreCase)
-                    || proc.ProcessName.Equals("Minecraft", StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>Bedrock (UWP) is sensitive to ultra-tight synthetic click phases and deprecated mouse_event injection.</summary>
-        private static void ClampBedrockDelays(ref int upTime, ref int downTime)
-        {
-            const int minPhaseMs = 8;
-            const int minFrameMs = 24;
-            upTime = Math.Max(upTime, minPhaseMs);
-            downTime = Math.Max(downTime, minPhaseMs);
-            int frame = upTime + downTime;
-            if (frame < minFrameMs)
-                downTime += minFrameMs - frame;
-        }
-
         private static readonly int InputSizeBytes = Marshal.SizeOf(typeof(INPUT));
 
         private static void SendSyntheticMouse(uint dwFlags, int dx = 0, int dy = 0)
@@ -855,6 +830,13 @@ namespace CitronClicker
             SaveConfig();
         }
 
+        private void AccessibilityModeCheck_Click(object sender, RoutedEventArgs e)
+        {
+            if (isUpdatingUI) return;
+            currentProfile.AccessibilityMode = AccessibilityModeCheck.IsChecked ?? false;
+            SaveConfig();
+        }
+
         private void JitterSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (isUpdatingUI) return;
@@ -864,16 +846,33 @@ namespace CitronClicker
             SaveConfig();
         }
 
-        private void PreciseDelay(int delayMs, Func<bool> condition, CancellationToken token)
+        /// <summary>Yields with <see cref="Task.Delay"/> so the thread never blocks on Sleep — required for Bedrock (UWP) stability.</summary>
+        private static async Task PreciseDelayAsync(int delayMs, Func<bool> condition, CancellationToken token)
         {
-            Stopwatch sw = Stopwatch.StartNew();
+            if (delayMs <= 0)
+                return;
+
+            var sw = Stopwatch.StartNew();
             while (sw.ElapsedMilliseconds < delayMs)
             {
-                if (token.IsCancellationRequested || (condition != null && !condition())) break;
-                if (delayMs - sw.ElapsedMilliseconds > 15)
-                    Thread.Sleep(1);
-                else
-                    Thread.SpinWait(10);
+                if (token.IsCancellationRequested)
+                    break;
+                if (condition != null && !condition())
+                    break;
+
+                int remaining = delayMs - (int)sw.ElapsedMilliseconds;
+                if (remaining <= 0)
+                    break;
+
+                int chunk = Math.Min(remaining, 4);
+                try
+                {
+                    await Task.Delay(chunk, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
             }
         }
 
@@ -918,14 +917,10 @@ namespace CitronClicker
                             isHolding = false;
                         }
 
-                        var (upTime, downTime) = delayGenerator.GetDelays(profile.MinCps, profile.MaxCps, comboMode: false);
-                        int ut = upTime;
-                        int dt = downTime;
-                        if (IsForegroundBedrock())
-                            ClampBedrockDelays(ref ut, ref dt);
+                        var (upTime, downTime) = delayGenerator.GetDelays(profile.MinCps, profile.MaxCps, profile.AccessibilityMode);
 
                         SendSyntheticMouse(upEvent);
-                        PreciseDelay(ut, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
+                        await PreciseDelayAsync(upTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token).ConfigureAwait(false);
                         
                         // Check if user released during the delay
                         bool stillDown = profile.IsLeft ? physicalLmbDown : physicalRmbDown;
@@ -945,7 +940,7 @@ namespace CitronClicker
                                 SendSyntheticMouse(MOUSEEVENTF_MOVE, jx, jy);
                         }
 
-                        PreciseDelay(dt, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token);
+                        await PreciseDelayAsync(downTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token).ConfigureAwait(false);
                     }
                     else
                     {
