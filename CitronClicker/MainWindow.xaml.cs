@@ -29,8 +29,6 @@ namespace CitronClicker
         public bool AvoidGui { get; set; } = true;
         public bool Jitter { get; set; } = false;
         public int JitterIntensity { get; set; } = 2;
-        /// <summary>Steady ±3ms timing for accessibility. When false, full statistical delay path (bypass / pentest profile).</summary>
-        public bool AccessibilityMode { get; set; }
         public int Hotkey { get; set; } = 0;
     }
 
@@ -173,10 +171,21 @@ namespace CitronClicker
                     {
                         if (config.LeftProfile != null) leftProfile = config.LeftProfile;
                         if (config.RightProfile != null) rightProfile = config.RightProfile;
+                        ClampCpsToUiRange(leftProfile);
+                        ClampCpsToUiRange(rightProfile);
                     }
                 }
             }
             catch { }
+        }
+
+        private static void ClampCpsToUiRange(ClickerProfile p)
+        {
+            int cap = HumanizedDelayGenerator.MaxCpsUi;
+            p.MinCps = Math.Clamp(p.MinCps, 1, cap);
+            p.MaxCps = Math.Clamp(p.MaxCps, 1, cap);
+            if (p.MinCps > p.MaxCps)
+                p.MinCps = p.MaxCps;
         }
 
         private bool IsCursorVisible()
@@ -212,6 +221,7 @@ namespace CitronClicker
         private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
         private const uint MOUSEEVENTF_LEFTUP = 0x0004;
         private const int VK_LBUTTON = 0x01;
+        private const int VK_RBUTTON = 0x02;
 
         private bool isBindingHotkey = false;
 
@@ -263,8 +273,16 @@ namespace CitronClicker
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            _proc = HookCallback;
-            _hookID = SetHook(_proc);
+            var hookTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2500) };
+            hookTimer.Tick += (_, __) =>
+            {
+                hookTimer.Stop();
+                if (_hookID != IntPtr.Zero)
+                    return;
+                _proc = HookCallback;
+                _hookID = SetHook(_proc);
+            };
+            hookTimer.Start();
         }
 
         private string VirtualKeyToString(int vk)
@@ -302,7 +320,6 @@ namespace CitronClicker
             MinCpsText.Text = currentProfile.MinCps.ToString();
             MaxCpsText.Text = currentProfile.MaxCps.ToString();
             AvoidGuiCheck.IsChecked = currentProfile.AvoidGui;
-            AccessibilityModeCheck.IsChecked = currentProfile.AccessibilityMode;
             JitterCheck.IsChecked = currentProfile.Jitter;
             JitterSlider.Value = currentProfile.JitterIntensity;
             JitterText.Text = currentProfile.JitterIntensity.ToString();
@@ -523,34 +540,39 @@ namespace CitronClicker
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
             // Never block here — UWP (Bedrock) relies on the message pump; always chain immediately.
-            if (nCode >= 0)
+            try
             {
-                MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
-                if ((hookStruct.flags & LLMHF_INJECTED) == 0)
+                if (nCode >= 0 && lParam != IntPtr.Zero)
                 {
-                    if (wParam == (IntPtr)WM_LBUTTONDOWN)
+                    MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                    if ((hookStruct.flags & LLMHF_INJECTED) == 0)
                     {
-                        physicalLmbDown = true;
-                    }
-                    else if (wParam == (IntPtr)WM_LBUTTONUP)
-                    {
-                        physicalLmbDown = false;
-                    }
-                    else if (wParam == (IntPtr)WM_RBUTTONDOWN)
-                    {
-                        physicalRmbDown = true;
-                    }
-                    else if (wParam == (IntPtr)WM_RBUTTONUP)
-                    {
-                        physicalRmbDown = false;
-                    }
-                    else if (wParam == (IntPtr)WM_MOUSEMOVE)
-                    {
-                        lastPhysicalMouseMoveTime = Environment.TickCount64;
+                        if (wParam == (IntPtr)WM_LBUTTONDOWN)
+                            physicalLmbDown = true;
+                        else if (wParam == (IntPtr)WM_LBUTTONUP)
+                            physicalLmbDown = false;
+                        else if (wParam == (IntPtr)WM_RBUTTONDOWN)
+                            physicalRmbDown = true;
+                        else if (wParam == (IntPtr)WM_RBUTTONUP)
+                            physicalRmbDown = false;
+                        else if (wParam == (IntPtr)WM_MOUSEMOVE)
+                            lastPhysicalMouseMoveTime = Environment.TickCount64;
                     }
                 }
             }
+            catch
+            {
+            }
+
             return CallNextHookEx(_hookID, nCode, wParam, lParam);
+        }
+
+        private bool IsPhysicalMouseDown(ClickerProfile profile)
+        {
+            if (_hookID != IntPtr.Zero)
+                return profile.IsLeft ? physicalLmbDown : physicalRmbDown;
+            int vk = profile.IsLeft ? VK_LBUTTON : VK_RBUTTON;
+            return (GetAsyncKeyState(vk) & 0x8000) != 0;
         }
 
         private void Slider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -830,13 +852,6 @@ namespace CitronClicker
             SaveConfig();
         }
 
-        private void AccessibilityModeCheck_Click(object sender, RoutedEventArgs e)
-        {
-            if (isUpdatingUI) return;
-            currentProfile.AccessibilityMode = AccessibilityModeCheck.IsChecked ?? false;
-            SaveConfig();
-        }
-
         private void JitterSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (isUpdatingUI) return;
@@ -846,7 +861,10 @@ namespace CitronClicker
             SaveConfig();
         }
 
-        /// <summary>Yields with <see cref="Task.Delay"/> so the thread never blocks on Sleep — required for Bedrock (UWP) stability.</summary>
+        /// <summary>
+        /// One <see cref="Task.Delay"/> per wait avoids stacking many short delays (Windows timer quantization
+        /// inflated effective click spacing near ~16 CPS).
+        /// </summary>
         private static async Task PreciseDelayAsync(int delayMs, Func<bool> condition, CancellationToken token)
         {
             if (delayMs <= 0)
@@ -864,10 +882,9 @@ namespace CitronClicker
                 if (remaining <= 0)
                     break;
 
-                int chunk = Math.Min(remaining, 4);
                 try
                 {
-                    await Task.Delay(chunk, token).ConfigureAwait(false);
+                    await Task.Delay(remaining, token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -906,7 +923,7 @@ namespace CitronClicker
 
                 if (shouldClick)
                 {
-                    bool physicalBtnDown = profile.IsLeft ? physicalLmbDown : physicalRmbDown;
+                    bool physicalBtnDown = IsPhysicalMouseDown(profile);
 
                     if (physicalBtnDown)
                     {
@@ -917,13 +934,12 @@ namespace CitronClicker
                             isHolding = false;
                         }
 
-                        var (upTime, downTime) = delayGenerator.GetDelays(profile.MinCps, profile.MaxCps, profile.AccessibilityMode);
+                        var (upTime, downTime) = delayGenerator.GetDelays(profile.MinCps, profile.MaxCps);
 
                         SendSyntheticMouse(upEvent);
-                        await PreciseDelayAsync(upTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token).ConfigureAwait(false);
-                        
-                        // Check if user released during the delay
-                        bool stillDown = profile.IsLeft ? physicalLmbDown : physicalRmbDown;
+                        await PreciseDelayAsync(upTime, () => IsPhysicalMouseDown(profile), token).ConfigureAwait(false);
+
+                        bool stillDown = IsPhysicalMouseDown(profile);
                         if (!stillDown)
                         {
                             btnDownTime = 0;
@@ -931,7 +947,7 @@ namespace CitronClicker
                         }
 
                         SendSyntheticMouse(downEvent);
-                        
+
                         if (profile.Jitter)
                         {
                             int jx = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
@@ -940,7 +956,7 @@ namespace CitronClicker
                                 SendSyntheticMouse(MOUSEEVENTF_MOVE, jx, jy);
                         }
 
-                        await PreciseDelayAsync(downTime, () => profile.IsLeft ? physicalLmbDown : physicalRmbDown, token).ConfigureAwait(false);
+                        await PreciseDelayAsync(downTime, () => IsPhysicalMouseDown(profile), token).ConfigureAwait(false);
                     }
                     else
                     {
@@ -951,7 +967,7 @@ namespace CitronClicker
                             isHolding = false;
                             wasClicking = false;
                         }
-                        await Task.Delay(10, token);
+                        await Task.Delay(1, token);
                     }
                 }
                 else
@@ -970,7 +986,12 @@ namespace CitronClicker
 
         protected override void OnClosed(EventArgs e)
         {
-            UnhookWindowsHookEx(_hookID);
+            if (_hookID != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(_hookID);
+                _hookID = IntPtr.Zero;
+            }
+
             cts.Cancel();
             base.OnClosed(e);
         }

@@ -281,7 +281,7 @@
                                 <TextBlock Text="MIN CPS" FontSize="14" FontWeight="Bold" Foreground="{StaticResource SubTextColor}" VerticalAlignment="Bottom"/>
                                 <TextBlock x:Name="MinCpsText" Text="12" FontSize="24" FontWeight="Black" Foreground="{StaticResource AccentColor}" HorizontalAlignment="Right"/>
                             </Grid>
-                            <Slider x:Name="MinCpsSlider" Minimum="1" Maximum="20" Value="12" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Slider_ValueChanged" Style="{StaticResource CustomSlider}" ToolTip="Effective CPS is capped at 16.5 in the click engine (bypass / anticheat safety)."/>
+                            <Slider x:Name="MinCpsSlider" Minimum="1" Maximum="20" Value="12" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Slider_ValueChanged" Style="{StaticResource CustomSlider}"/>
                             <Grid Margin="0,8,0,0">
                                 <TextBlock Text="1" FontSize="10" FontWeight="Bold" Foreground="#767575" HorizontalAlignment="Left"/>
                                 <TextBlock Text="20" FontSize="10" FontWeight="Bold" Foreground="#767575" HorizontalAlignment="Right"/>
@@ -294,7 +294,7 @@
                                 <TextBlock Text="MAX CPS" FontSize="14" FontWeight="Bold" Foreground="{StaticResource SubTextColor}" VerticalAlignment="Bottom"/>
                                 <TextBlock x:Name="MaxCpsText" Text="18" FontSize="24" FontWeight="Black" Foreground="{StaticResource AccentColor}" HorizontalAlignment="Right"/>
                             </Grid>
-                            <Slider x:Name="MaxCpsSlider" Minimum="1" Maximum="20" Value="18" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Slider_ValueChanged" Style="{StaticResource CustomSlider}" ToolTip="Effective CPS is capped at 16.5 in the click engine (bypass / anticheat safety)."/>
+                            <Slider x:Name="MaxCpsSlider" Minimum="1" Maximum="20" Value="18" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="Slider_ValueChanged" Style="{StaticResource CustomSlider}"/>
                             <Grid Margin="0,8,0,0">
                                 <TextBlock Text="1" FontSize="10" FontWeight="Bold" Foreground="#767575" HorizontalAlignment="Left"/>
                                 <TextBlock Text="20" FontSize="10" FontWeight="Bold" Foreground="#767575" HorizontalAlignment="Right"/>
@@ -305,8 +305,6 @@
                     <!-- Options Cards -->
                     <Grid Grid.Row="2" Margin="0,16,0,24">
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="16"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="16"/>
                             <RowDefinition Height="Auto"/>
@@ -383,23 +381,8 @@
                             </Grid>
                         </Border>
 
-                        <!-- Accessibility: steady timing (bypass mode uses full statistical delays; max CPS capped in engine) -->
-                        <Border Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
-                                    <TextBlock Text="ACCESSIBILITY MODE" FontSize="14" FontWeight="Bold" Foreground="{StaticResource TextColor}" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="Steady clicks (±3ms). Off = statistical bypass timing." FontSize="10" Foreground="{StaticResource SubTextColor}" Margin="0,4,0,0" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <CheckBox x:Name="AccessibilityModeCheck" Grid.Column="1" IsChecked="False" Style="{StaticResource ToggleSwitchStyle}" VerticalAlignment="Center" Click="AccessibilityModeCheck_Click"/>
-                            </Grid>
-                        </Border>
-
                         <!-- Jitter Intensity Slider -->
-                        <Border x:Name="JitterIntensityCard" Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20">
+                        <Border x:Name="JitterIntensityCard" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Background="{StaticResource ItemBgColor}" CornerRadius="8" Padding="20">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>

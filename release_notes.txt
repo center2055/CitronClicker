@@ -1,3 +1,17 @@
-Changelog:
-* Improved click randomization to bypass server anticheats (like The Hive)
-* Added organic noise and human-like click drop-offs
+Citron Clicker — changelog since v1.0.3 (release v1.1.0)
+
+Timing and CPS
+- Removed the hard 16.5 CPS cap and misleading “capped at 16.5” slider tooltips. Sliders (1–20) now match the delay engine.
+- Replaced the old split/clamp delay path with a period-based generator: target cycle ≈ 1000 / sampled CPS, light variance, bias toward the high end of your min–max range for snappier sustained rates.
+- Removed Accessibility Mode and its dual timing path; one engine path for all users.
+
+Input loop and Bedrock
+- PreciseDelayAsync now uses one Task.Delay per phase instead of many 4 ms slices, avoiding Windows timer quantization that capped observed CPS near ~16.
+- Deferred installation of the WH_MOUSE_LL hook by 2.5 s after window load to reduce races when starting Minecraft Bedrock/UWP after the clicker.
+- While the hook is not yet installed, physical mouse state falls back to GetAsyncKeyState.
+- Hook callback wrapped in try/catch; UnhookWindowsHookEx only runs when a hook was installed.
+- Shorter yield (1 ms) when the physical button is up but the module is still active.
+
+Project and releases
+- RollForward=LatestMinor so any installed .NET 9.x desktop patch line can satisfy the app.
+- Added scripts/Publish-GitHubAssets.ps1: builds CitronClicker_RequiresDotNet.exe (framework-dependent single-file) and CitronClicker_Standalone.exe for GitHub uploads.
