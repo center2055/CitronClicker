@@ -43,6 +43,15 @@ namespace CitronClicker
                 period -= random.Next(1, 5);
 
             period = Math.Max(5.0, period);
+
+            // Nudge full-cycle period toward 50 ms bucket boundaries (small variance), then re-clamp.
+            double tickRemainder = period % 50.0;
+            if (tickRemainder < 15.0)
+                period = period - tickRemainder + random.NextDouble() * 4.0;
+            else if (tickRemainder > 35.0)
+                period = period + (50.0 - tickRemainder) - random.NextDouble() * 4.0;
+            period = Math.Max(5.0, period);
+
             int P = (int)Math.Round(period);
 
             int downCap = Math.Min(26, Math.Max(3, P - 2));
