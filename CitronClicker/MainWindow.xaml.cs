@@ -267,6 +267,8 @@ namespace CitronClicker
             Task.Run(() => ClickerLoop(leftProfile, cts.Token));
             Task.Run(() => ClickerLoop(rightProfile, cts.Token));
             Task.Run(() => HotkeyLoop(cts.Token));
+            Task.Run(() => SmoothJitterLoop(leftProfile, cts.Token));
+            Task.Run(() => SmoothJitterLoop(rightProfile, cts.Token));
 
             UpdateUIFromProfile();
         }
@@ -947,14 +949,7 @@ namespace CitronClicker
                         }
 
                         SendSyntheticMouse(downEvent);
-
-                        if (profile.Jitter)
-                        {
-                            int jx = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
-                            int jy = random.Next(-profile.JitterIntensity, profile.JitterIntensity + 1);
-                            if (jx != 0 || jy != 0)
-                                SendSyntheticMouse(MOUSEEVENTF_MOVE, jx, jy);
-                        }
+                        // When jitter is enabled, movement is applied by SmoothJitterLoop.
 
                         await PreciseDelayAsync(downTime, () => IsPhysicalMouseDown(profile), token).ConfigureAwait(false);
                     }
@@ -980,6 +975,33 @@ namespace CitronClicker
                         wasClicking = false;
                     }
                     await Task.Delay(50, token);
+                }
+            }
+        }
+
+        private async Task SmoothJitterLoop(ClickerProfile profile, CancellationToken token)
+        {
+            double time = 0.0;
+            while (!token.IsCancellationRequested)
+            {
+                if (profile.IsEnabled && profile.Jitter && IsPhysicalMouseDown(profile) && IsMinecraftActive())
+                {
+                    time += 0.35;
+                    double jx = Math.Sin(time) * profile.JitterIntensity;
+                    double jy = Math.Cos(time * 0.8) * (profile.JitterIntensity * 0.4);
+
+                    int ix = (int)Math.Round(jx * (random.NextDouble() * 0.6 + 0.4));
+                    int iy = (int)Math.Round(jy * (random.NextDouble() * 0.6 + 0.4));
+
+                    if (ix != 0 || iy != 0)
+                        SendSyntheticMouse(MOUSEEVENTF_MOVE, ix, iy);
+
+                    await Task.Delay(10, token);
+                }
+                else
+                {
+                    time = 0.0;
+                    await Task.Delay(20, token);
                 }
             }
         }
