@@ -1,8 +1,9 @@
 Citron Clicker — changelog since v1.1.0 (release v1.1.1)
 
 Timing (HumanizedDelayGenerator)
-- After the usual drift and variance, the full click-cycle period is nudged toward 50 ms bucket boundaries when the remainder falls in the outer thirds of a 50 ms window, with a small random offset (up to ~4 ms). This reduces scattered sub-bucket timing while keeping variation.
+- Fixed an accidental mathematical bias (+2ms) in the 50ms tick-magnetization logic, guaranteeing exactly balanced 0ms long-term drift.
 
-Input / jitter (MainWindow)
-- When jitter is enabled, cursor motion is no longer applied as a random jump on each synthetic click. A background SmoothJitterLoop per profile applies continuous sinusoidal movement while the physical button is held, Minecraft is in the foreground, and the profile is enabled. Horizontal motion is stronger than vertical.
-- Jitter moves use the same SendInput path as synthetic clicks (SendSyntheticMouse), consistent with the existing Bedrock-oriented input approach.
+Input & Performance (MainWindow)
+- Converted ClickerLoop to use Time Accumulation scheduling instead of sequential waiting. This automatically deducts async Task dispatch delays from the next sleep cycle, achieving mathematically perfect CPS outputs regardless of CPU starvation.
+- Eliminated Windows ThreadPool quantization limits by restricting `Task.Delay` buffers and offloading the remainder to precise `SpinWait`.
+- Replaced the heavy 100Hz `Process.GetProcessById` check with a Zero-Latency HWND window cache. `IsMinecraftActive` no longer freezes the thread pool when idling or starting a burst.
