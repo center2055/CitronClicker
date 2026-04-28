@@ -704,11 +704,23 @@ namespace CitronClicker
             SaveConfig();
         }
 
+        private IntPtr lastForegroundWindow = IntPtr.Zero;
+        private bool lastIsMinecraftActive = false;
+
         private bool IsMinecraftActive()
         {
             IntPtr hWnd = GetForegroundWindow();
             if (hWnd == IntPtr.Zero) return false;
 
+            if (hWnd == lastForegroundWindow) return lastIsMinecraftActive;
+
+            lastForegroundWindow = hWnd;
+            lastIsMinecraftActive = EvaluateIsMinecraftActive(hWnd);
+            return lastIsMinecraftActive;
+        }
+
+        private bool EvaluateIsMinecraftActive(IntPtr hWnd)
+        {
             GetWindowThreadProcessId(hWnd, out uint pid);
             try
             {
@@ -873,24 +885,31 @@ namespace CitronClicker
                 return;
 
             var sw = Stopwatch.StartNew();
-            while (sw.ElapsedMilliseconds < delayMs)
+            while (sw.Elapsed.TotalMilliseconds < delayMs)
             {
                 if (token.IsCancellationRequested)
                     break;
                 if (condition != null && !condition())
                     break;
 
-                int remaining = delayMs - (int)sw.ElapsedMilliseconds;
+                double remaining = delayMs - sw.Elapsed.TotalMilliseconds;
                 if (remaining <= 0)
                     break;
 
-                try
+                if (remaining > 30.0)
                 {
-                    await Task.Delay(remaining, token).ConfigureAwait(false);
+                    try
+                    {
+                        await Task.Delay(1, token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
                 }
-                catch (OperationCanceledException)
+                else
                 {
-                    break;
+                    Thread.SpinWait(10);
                 }
             }
         }
@@ -901,6 +920,9 @@ namespace CitronClicker
             bool isHolding = false;
             bool wasClicking = false;
             HumanizedDelayGenerator delayGenerator = new HumanizedDelayGenerator();
+            
+            Stopwatch sessionSw = new Stopwatch();
+            double nextExpectedClickTime = 0;
 
             while (!token.IsCancellationRequested)
             {
@@ -929,6 +951,12 @@ namespace CitronClicker
 
                     if (physicalBtnDown)
                     {
+                        if (!wasClicking)
+                        {
+                            sessionSw.Restart();
+                            nextExpectedClickTime = 0;
+                        }
+
                         wasClicking = true;
                         if (btnDownTime == 0)
                         {
@@ -938,8 +966,24 @@ namespace CitronClicker
 
                         var (upTime, downTime) = delayGenerator.GetDelays(profile.MinCps, profile.MaxCps);
 
+                        double targetTotal = upTime + downTime;
+                        nextExpectedClickTime += targetTotal;
+                        
+                        double currentElapsed = sessionSw.Elapsed.TotalMilliseconds;
+                        double neededDelay = nextExpectedClickTime - currentElapsed;
+                        
+                        if (neededDelay < 10) 
+                        {
+                            neededDelay = 10;
+                            nextExpectedClickTime = currentElapsed + 10;
+                        }
+
+                        double ratio = (double)upTime / targetTotal;
+                        int compUpTime = (int)Math.Round(neededDelay * ratio);
+                        int compDownTime = (int)Math.Round(neededDelay - compUpTime);
+
                         SendSyntheticMouse(upEvent);
-                        await PreciseDelayAsync(upTime, () => IsPhysicalMouseDown(profile), token).ConfigureAwait(false);
+                        await PreciseDelayAsync(compUpTime, () => IsPhysicalMouseDown(profile), token).ConfigureAwait(false);
 
                         bool stillDown = IsPhysicalMouseDown(profile);
                         if (!stillDown)
@@ -951,7 +995,7 @@ namespace CitronClicker
                         SendSyntheticMouse(downEvent);
                         // When jitter is enabled, movement is applied by SmoothJitterLoop.
 
-                        await PreciseDelayAsync(downTime, () => IsPhysicalMouseDown(profile), token).ConfigureAwait(false);
+                        await PreciseDelayAsync(compDownTime, () => IsPhysicalMouseDown(profile), token).ConfigureAwait(false);
                     }
                     else
                     {
