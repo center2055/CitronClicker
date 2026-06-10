@@ -410,6 +410,10 @@ namespace CitronClicker
             if (t.Contains("feather")) return true;
             if (t.Contains("labymod")) return true;
             if (t.Contains("salwyrr")) return true;
+            if (t.Contains("cm client")) return true;
+            if (t.Contains("cmclient")) return true;
+            if (t.Contains("cm-pack")) return true;
+            if (t.Contains("cm pack")) return true;
             if (t.Contains("fml earlyloading")) return true;
             if (t.Contains("forge")) return true;
             if (t.Contains("fabric")) return true;
@@ -442,6 +446,22 @@ namespace CitronClicker
             }
 
             return TitleSuggestsMinecraftJava(title);
+        }
+
+        /// <summary>
+        /// Strong "this is the actual game render window" signal: GLFW (1.13+) or LWJGL (≤1.12)
+        /// register their own window class. Browsers, editors, Discord, etc. never do — so this
+        /// is safe to trust even when the owning process has an unexpected name (custom clients
+        /// that ship or rename their own JRE, e.g. CM Client).
+        /// </summary>
+        private static bool WindowHasMinecraftRenderClass(IntPtr hWnd)
+        {
+            if (hWnd == IntPtr.Zero) return false;
+            var clsSb = new StringBuilder(256);
+            if (GetClassName(hWnd, clsSb, clsSb.Capacity) <= 0) return false;
+            string cls = clsSb.ToString();
+            return cls.Contains("GLFW", StringComparison.OrdinalIgnoreCase)
+                || cls.Contains("LWJGL", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool BedrockWindowLooksLikeGame(Process p)
@@ -500,6 +520,12 @@ namespace CitronClicker
                 }
             }
             catch { }
+
+            // The scans above only enumerate java/javaw/Minecraft(.Windows). Custom clients can run
+            // under a renamed process they miss, so the badge could read "WAITING FOR MC" while the
+            // clicker is actually live. If the foreground window already qualifies, show INJECTED.
+            if (!found && IsMinecraftActive())
+                found = true;
 
             isMinecraftRunning = found;
             UpdateStatusText();
@@ -735,10 +761,16 @@ namespace CitronClicker
                     return !TitleLooksLikeMinecraftLauncher(titleSb.ToString());
                 }
 
-                if (!IsJavaLikeProcessName(procName))
-                    return false;
+                // Standard Java launches (java / javaw): trust both the GLFW/LWJGL render class
+                // and the Minecraft-like title heuristics.
+                if (IsJavaLikeProcessName(procName))
+                    return WindowLooksLikeMinecraftJavaClient(hWnd, proc);
 
-                return WindowLooksLikeMinecraftJavaClient(hWnd, proc);
+                // Custom clients (e.g. CM Client) often run the game under a bundled or renamed
+                // runtime, so the process name is no longer a reliable gate. We still require the
+                // strong render-window signal here so the clicker never fires on an unrelated app
+                // that merely has "minecraft" in its title (browser tab, editor, Discord, …).
+                return WindowHasMinecraftRenderClass(hWnd);
             }
             catch { }
 
