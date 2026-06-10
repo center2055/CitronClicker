@@ -1,9 +1,7 @@
-Citron Clicker — changelog since v1.1.0 (release v1.1.1)
+Citron Clicker — changelog since v1.1.2 (release v1.1.3)
 
-Timing (HumanizedDelayGenerator)
-- Fixed an accidental mathematical bias (+2ms) in the 50ms tick-magnetization logic, guaranteeing exactly balanced 0ms long-term drift.
-
-Input & Performance (MainWindow)
-- Converted ClickerLoop to use Time Accumulation scheduling instead of sequential waiting. This automatically deducts async Task dispatch delays from the next sleep cycle, achieving mathematically perfect CPS outputs regardless of CPU starvation.
-- Eliminated Windows ThreadPool quantization limits by restricting `Task.Delay` buffers and offloading the remainder to precise `SpinWait`.
-- Replaced the heavy 100Hz `Process.GetProcessById` check with a Zero-Latency HWND window cache. `IsMinecraftActive` no longer freezes the thread pool when idling or starting a burst.
+Client detection (MainWindow)
+- Fixed the autoclicker doing nothing in custom clients such as CM Client. `IsMinecraftActive` no longer hard-rejects the focused window just because the game runs under a bundled or renamed runtime (a process not named `java`/`javaw`). Standard `java`/`javaw` launches are unchanged.
+- For custom-runtime clients, clicking now activates when the focused window is the real GLFW (1.13+) / LWJGL (1.12 and earlier) game render window. This is a deliberately strong signal so the clicker never fires on an unrelated app that merely has "minecraft" in its title (browser tab, editor, Discord, ...).
+- Added CM Client / CMCLIENT / CM-Pack to the recognized Java client titles.
+- The INJECTED status badge now also reflects a foreground custom client, instead of reading "WAITING FOR MC" while the clicker is actually live.
