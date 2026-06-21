@@ -121,6 +121,13 @@ impl HumanizedDelay {
         }
         period = period.max(5.0);
 
+        // Respect the user's CPS bounds. The 50ms tick magnetization above can otherwise snap a
+        // near-max period down to the 50ms (20 CPS) bucket, overshooting max. Clamp the period so
+        // the resulting rate stays within [min_cps, max_cps].
+        let min_period = 1000.0 / eff_max; // fastest allowed
+        let max_period = 1000.0 / eff_min; // slowest allowed
+        period = period.clamp(min_period, max_period);
+
         let p = period.round() as i32;
         let down_cap = 26.min(3.max(p - 2));
         let down_min = 3.min(down_cap);

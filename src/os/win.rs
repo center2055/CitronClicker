@@ -13,7 +13,7 @@ use windows_sys::Win32::Media::timeBeginPeriod;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::ProcessStatus::K32GetModuleBaseNameW;
 use windows_sys::Win32::System::Threading::{
-    GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    GetCurrentProcessId, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
@@ -181,6 +181,19 @@ pub fn key_held(vk: i32) -> bool {
 
 pub fn any_window_focused() -> bool {
     unsafe { !GetForegroundWindow().is_null() }
+}
+
+/// True when our own window is in the foreground — used to never click into our own UI.
+pub fn foreground_is_self() -> bool {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            return false;
+        }
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        pid != 0 && pid == GetCurrentProcessId()
+    }
 }
 
 fn read_w(f: impl Fn(*mut u16, i32) -> i32) -> String {

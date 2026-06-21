@@ -24,3 +24,6 @@ pub fn is_minecraft_active() -> bool {
 pub fn any_window_focused() -> bool {
     false
 }
+pub fn foreground_is_self() -> bool {
+    false
+}

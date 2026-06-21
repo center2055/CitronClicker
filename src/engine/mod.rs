@@ -255,6 +255,7 @@ fn clicker_loop(
         let should = snap.enabled
             && !sig.panic.load(Ordering::Relaxed)
             && !sig.capturing.load(Ordering::Relaxed)
+            && !os::foreground_is_self() // never click into our own window, regardless of settings
             && focus_ok
             && !gui_block
             && !suspend
