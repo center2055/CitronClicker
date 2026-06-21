@@ -358,6 +358,33 @@ fn dual_range(ui: &mut egui::Ui, min: &mut f32, max: &mut f32, accent: Color32) 
     }
 }
 
+fn single_slider(ui: &mut egui::Ui, value: &mut f32, min: f32, max: f32, accent: Color32) {
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::click_and_drag());
+    let to_x = |v: f32| rect.left() + (v - min) / (max - min) * rect.width();
+    if resp.dragged() || resp.clicked() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            let t = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+            *value = min + t * (max - min);
+        }
+    }
+    let y = rect.center().y;
+    let p = ui.painter();
+    p.rect_filled(
+        Rect::from_min_max(Pos2::new(rect.left(), y - 2.0), Pos2::new(rect.right(), y + 2.0)),
+        CornerRadius::same(2),
+        TRACK,
+    );
+    let hx = to_x(*value);
+    p.rect_filled(
+        Rect::from_min_max(Pos2::new(rect.left(), y - 2.0), Pos2::new(hx, y + 2.0)),
+        CornerRadius::same(2),
+        accent,
+    );
+    p.circle_filled(Pos2::new(hx, y), 9.0, accent);
+    p.circle_filled(Pos2::new(hx, y), 4.0, BG);
+}
+
 fn histogram(ui: &mut egui::Ui, histo: &[f32], accent: Color32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::hover());
     let n = histo.len().max(1);
@@ -733,8 +760,8 @@ impl CitronApp {
                             semibold(&format!("{}%", self.volume as i32), 12.0, MUT),
                         );
                     });
-                    ui.add_space(4.0);
-                    ui.add(egui::Slider::new(&mut self.volume, 0.0..=100.0).show_value(false));
+                    ui.add_space(6.0);
+                    single_slider(ui, &mut self.volume, 0.0, 100.0, accent);
                 });
             });
         });
