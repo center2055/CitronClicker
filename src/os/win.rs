@@ -20,11 +20,11 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEINPUT, SendInput,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CURSOR_SHOWING, CURSORINFO, CallNextHookEx, DispatchMessageW, GetClassNameW, GetCursorInfo,
-    GetForegroundWindow, GetMessageW, GetWindowTextW, GetWindowThreadProcessId, LLMHF_INJECTED,
-    MSG, MSLLHOOKSTRUCT, PostThreadMessageW, SetWindowsHookExW, TranslateMessage,
-    UnhookWindowsHookEx, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_QUIT, WM_RBUTTONDOWN,
-    WM_RBUTTONUP,
+    CURSOR_SHOWING, CURSORINFO, CallNextHookEx, DispatchMessageW, EnumWindows, GetClassNameW,
+    GetCursorInfo, GetForegroundWindow, GetMessageW, GetWindowTextW, GetWindowThreadProcessId,
+    IsWindowVisible, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PostThreadMessageW, SetWindowsHookExW,
+    TranslateMessage, UnhookWindowsHookEx, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_QUIT,
+    WM_RBUTTONDOWN, WM_RBUTTONUP,
 };
 
 static PHYS_LMB: AtomicBool = AtomicBool::new(false);
@@ -284,29 +284,57 @@ fn has_render_class(cls: &str) -> bool {
     cls.contains("glfw") || cls.contains("lwjgl")
 }
 
-/// True when the focused window is the actual Minecraft game (launcher-safe; ports the
-/// detection from the old source incl. the CM Client fix and custom-runtime clients).
-pub fn is_minecraft_active() -> bool {
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.is_null() {
-            return false;
-        }
-        let title = window_title(hwnd).to_lowercase();
-        if title_is_launcher(&title) {
-            return false;
-        }
-        let cls = window_class(hwnd).to_lowercase();
-        let pname = foreground_process_name(hwnd).to_lowercase();
-
-        if pname == "minecraft.windows" || pname == "minecraft" {
-            return true; // Bedrock (launcher titles already excluded above)
-        }
-        if pname == "java" || pname == "javaw" {
-            return has_render_class(&cls) || title_suggests_minecraft(&title);
-        }
-        // Custom clients with bundled/renamed runtimes: require the real GLFW/LWJGL render
-        // window so we never fire on an unrelated app that merely has "minecraft" in its title.
-        has_render_class(&cls)
+/// True when the given window is the actual Minecraft game (launcher-safe; ports the detection
+/// from the old source incl. the CM Client fix and custom-runtime clients). The GLFW/LWJGL
+/// render class is the strongest signal and is checked before any process query.
+fn hwnd_is_mc(hwnd: HWND) -> bool {
+    if hwnd.is_null() {
+        return false;
     }
+    let title = window_title(hwnd).to_lowercase();
+    if title_is_launcher(&title) {
+        return false;
+    }
+    let cls = window_class(hwnd).to_lowercase();
+    if has_render_class(&cls) {
+        return true; // GLFW/LWJGL game window (MC Java 1.13+ / most clients)
+    }
+    let pname = foreground_process_name(hwnd).to_lowercase();
+    if pname == "minecraft.windows" || pname == "minecraft" {
+        return true; // Bedrock
+    }
+    if pname == "java" || pname == "javaw" {
+        return title_suggests_minecraft(&title);
+    }
+    false
+}
+
+/// True when Minecraft is the focused window (used to gate clicking in "only in-game" mode).
+pub fn is_minecraft_active() -> bool {
+    let hwnd = unsafe { GetForegroundWindow() };
+    hwnd_is_mc(hwnd)
+}
+
+unsafe extern "system" fn enum_mc(hwnd: HWND, lparam: isize) -> i32 {
+    // Cheap pre-filter (class/title) so we only run a process query on real candidates.
+    if unsafe { IsWindowVisible(hwnd) } == 0 {
+        return 1;
+    }
+    let cls = window_class(hwnd).to_lowercase();
+    let title = window_title(hwnd).to_lowercase();
+    if (has_render_class(&cls) || title.contains("minecraft")) && hwnd_is_mc(hwnd) {
+        unsafe { *(lparam as *mut bool) = true };
+        return 0; // found — stop enumerating
+    }
+    1
+}
+
+/// True when a Minecraft game window exists anywhere (running, even if not focused). Used for
+/// the status badge — distinct from `is_minecraft_active` which the clicker uses.
+pub fn is_minecraft_running() -> bool {
+    let mut found = false;
+    unsafe {
+        EnumWindows(Some(enum_mc), &mut found as *mut bool as isize);
+    }
+    found
 }

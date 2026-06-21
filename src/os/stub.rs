@@ -21,6 +21,9 @@ pub fn key_held(_vk: i32) -> bool {
 pub fn is_minecraft_active() -> bool {
     false
 }
+pub fn is_minecraft_running() -> bool {
+    false
+}
 pub fn any_window_focused() -> bool {
     false
 }

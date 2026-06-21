@@ -81,12 +81,12 @@ impl HumanizedDelay {
         let eff_max = hi.max(lo);
         let span = eff_max - eff_min;
 
+        // Uniform sampling across [min, max] so the long-run average equals the midpoint.
         let u = rng.unit();
-        let bias_high = if span <= 0.0 { 1.0 } else { u.sqrt() };
         let mut sample_cps = if span <= 0.0 {
             eff_min
         } else {
-            eff_min + span * bias_high
+            eff_min + span * u
         };
         if sample_cps < 1.0 {
             sample_cps = 1.0;
@@ -113,17 +113,9 @@ impl HumanizedDelay {
         }
         period = period.max(5.0);
 
-        let rem = period % 50.0;
-        if rem < 15.0 {
-            period = period - rem + (rng.unit() * 4.0 - 2.0);
-        } else if rem > 35.0 {
-            period = period + (50.0 - rem) + (rng.unit() * 4.0 - 2.0);
-        }
-        period = period.max(5.0);
-
-        // Respect the user's CPS bounds. The 50ms tick magnetization above can otherwise snap a
-        // near-max period down to the 50ms (20 CPS) bucket, overshooting max. Clamp the period so
-        // the resulting rate stays within [min_cps, max_cps].
+        // Keep the resulting rate within the user's [min_cps, max_cps] bounds. (The old 50ms
+        // tick-magnetization was removed — it snapped periods toward the 50/60ms buckets, which
+        // skewed the average away from the midpoint and could overshoot max.)
         let min_period = 1000.0 / eff_max; // fastest allowed
         let max_period = 1000.0 / eff_min; // slowest allowed
         period = period.clamp(min_period, max_period);

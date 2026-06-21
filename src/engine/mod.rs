@@ -19,6 +19,7 @@ pub struct EngineSignals {
     pub suspend_right: AtomicBool,
     pub panic: AtomicBool,
     pub mc_focused: AtomicBool,
+    pub mc_running: AtomicBool,
     pub any_focused: AtomicBool,
     pub running: AtomicBool,
     /// Set by the UI while a key-rebind is armed: fully pauses the engine so the key/button
@@ -86,6 +87,7 @@ impl EngineHandle {
             suspend_right: AtomicBool::new(false),
             panic: AtomicBool::new(false),
             mc_focused: AtomicBool::new(false),
+            mc_running: AtomicBool::new(false),
             any_focused: AtomicBool::new(false),
             running: AtomicBool::new(true),
             capturing: AtomicBool::new(false),
@@ -379,6 +381,8 @@ fn key_poll_loop(
         if last_focus.elapsed() >= Duration::from_millis(150) {
             sig.mc_focused
                 .store(os::is_minecraft_active(), Ordering::Relaxed);
+            sig.mc_running
+                .store(os::is_minecraft_running(), Ordering::Relaxed);
             sig.any_focused
                 .store(os::any_window_focused(), Ordering::Relaxed);
             last_focus = Instant::now();

@@ -864,7 +864,7 @@ impl eframe::App for CitronApp {
 
 impl CitronApp {
     fn title_bar(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
-        let active = self.engine.signals.mc_focused.load(Ordering::Relaxed);
+        let active = self.engine.signals.mc_running.load(Ordering::Relaxed);
         egui::Frame::default()
             .inner_margin(Margin {
                 left: 18,
