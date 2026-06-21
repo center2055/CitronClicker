@@ -2,9 +2,10 @@
 
 use eframe::egui;
 use egui::{
-    Align, Align2, Color32, CornerRadius, FontId, Layout, Margin, Mesh, Pos2, Rect, RichText,
-    Sense, Shape, Stroke, StrokeKind, Vec2,
+    Align, Align2, Color32, CornerRadius, FontId, Layout, Margin, Pos2, Rect, RichText, Sense,
+    Stroke, StrokeKind, Vec2,
 };
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 const BG: Color32 = Color32::from_rgb(10, 13, 8);
@@ -40,7 +41,6 @@ mod ic {
     pub const TRAY: char = '\u{e42c}';
     pub const ZAP: char = '\u{e1b4}';
     pub const REFRESH: char = '\u{e145}';
-    pub const SAVE: char = '\u{e14d}';
     pub const CHART: char = '\u{e2a2}';
     pub const DISC: char = '\u{e494}';
 }
@@ -48,7 +48,7 @@ mod ic {
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([720.0, 824.0])
+            .with_inner_size([720.0, 672.0])
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)
@@ -142,12 +142,13 @@ enum Tab {
     Settings,
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 enum Pack {
     Default,
     Custom,
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct Clicker {
     enabled: bool,
     min_cps: f32,
@@ -158,6 +159,22 @@ struct Clicker {
     humanize: bool,
     jitter: bool,
     only_ingame: bool,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+struct Config {
+    left: Clicker,
+    right: Clicker,
+    right_hold: bool,
+    sounds_on: bool,
+    pack: Pack,
+    volume: f32,
+    separate: bool,
+    pitch_var: bool,
+    accent: [u8; 3],
+    start_system: bool,
+    tray: bool,
+    autoupdate: bool,
 }
 
 struct CitronApp {
@@ -177,6 +194,7 @@ struct CitronApp {
     histo: Vec<f32>,
     logo: egui::TextureHandle,
     logo_aspect: f32,
+    saved: Option<Config>,
 }
 
 impl CitronApp {
@@ -200,7 +218,7 @@ impl CitronApp {
             })
             .collect();
 
-        Self {
+        let mut app = Self {
             tab: Tab::Left,
             left: Clicker {
                 enabled: true,
@@ -237,16 +255,47 @@ impl CitronApp {
             histo,
             logo,
             logo_aspect,
+            saved: None,
+        };
+        if let Some(storage) = cc.storage {
+            if let Some(cfg) = eframe::get_value::<Config>(storage, "config") {
+                app.apply(cfg);
+            }
+        }
+        app
+    }
+
+    fn snapshot(&self) -> Config {
+        Config {
+            left: self.left.clone(),
+            right: self.right.clone(),
+            right_hold: self.right_hold,
+            sounds_on: self.sounds_on,
+            pack: self.pack,
+            volume: self.volume,
+            separate: self.separate,
+            pitch_var: self.pitch_var,
+            accent: [self.accent.r(), self.accent.g(), self.accent.b()],
+            start_system: self.start_system,
+            tray: self.tray,
+            autoupdate: self.autoupdate,
         }
     }
-}
 
-fn darken(c: Color32, f: f32) -> Color32 {
-    Color32::from_rgb(
-        (c.r() as f32 * f) as u8,
-        (c.g() as f32 * f) as u8,
-        (c.b() as f32 * f) as u8,
-    )
+    fn apply(&mut self, c: Config) {
+        self.left = c.left;
+        self.right = c.right;
+        self.right_hold = c.right_hold;
+        self.sounds_on = c.sounds_on;
+        self.pack = c.pack;
+        self.volume = c.volume;
+        self.separate = c.separate;
+        self.pitch_var = c.pitch_var;
+        self.accent = Color32::from_rgb(c.accent[0], c.accent[1], c.accent[2]);
+        self.start_system = c.start_system;
+        self.tray = c.tray;
+        self.autoupdate = c.autoupdate;
+    }
 }
 
 fn semibold(text: &str, size: f32, color: Color32) -> RichText {
@@ -450,6 +499,16 @@ impl eframe::App for CitronApp {
         [0.0, 0.0, 0.0, 0.0]
     }
 
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        let snap = self.snapshot();
+        eframe::set_value(storage, "config", &snap);
+        self.saved = Some(snap);
+    }
+
+    fn auto_save_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(1)
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let win = ctx.content_rect();
@@ -469,15 +528,6 @@ impl eframe::App for CitronApp {
             .frame(egui::Frame::default().fill(BG))
             .show_separator_line(false)
             .show_inside(ui, |ui| self.tab_bar(ui));
-        egui::Panel::bottom("footer")
-            .frame(egui::Frame::default().fill(BG).inner_margin(Margin {
-                left: 18,
-                right: 18,
-                top: 8,
-                bottom: 14,
-            }))
-            .show_separator_line(false)
-            .show_inside(ui, |ui| self.footer(ui));
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(BG).inner_margin(Margin::same(18)))
             .show_inside(ui, |ui| match self.tab {
@@ -486,6 +536,10 @@ impl eframe::App for CitronApp {
                 Tab::Sounds => self.sounds_tab(ui),
                 Tab::Settings => self.settings_tab(ui),
             });
+
+        if self.saved.as_ref() != Some(&self.snapshot()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(1100));
+        }
     }
 }
 
@@ -838,56 +892,6 @@ impl CitronApp {
         );
     }
 
-    fn footer(&mut self, ui: &mut egui::Ui) {
-        let accent = self.accent;
-        ui.horizontal(|ui| {
-            let (rect, resp) = ui.allocate_exact_size(
-                Vec2::new(ui.available_width() - 62.0, 46.0),
-                Sense::click(),
-            );
-            let p = ui.painter();
-            p.rect_filled(rect, CornerRadius::same(12), accent);
-            let d = darken(accent, 0.66);
-            let cl = Color32::from_rgba_unmultiplied(d.r(), d.g(), d.b(), 150);
-            let cr = Color32::from_rgba_unmultiplied(d.r(), d.g(), d.b(), 0);
-            let mut mesh = Mesh::default();
-            mesh.colored_vertex(rect.left_top(), cl);
-            mesh.colored_vertex(rect.right_top(), cr);
-            mesh.colored_vertex(rect.right_bottom(), cr);
-            mesh.colored_vertex(rect.left_bottom(), cl);
-            mesh.add_triangle(0, 1, 2);
-            mesh.add_triangle(0, 2, 3);
-            p.add(Shape::mesh(mesh));
-            let galley = p.layout_no_wrap(
-                "SAVE CONFIGURATION".to_string(),
-                FontId::new(14.0, egui::FontFamily::Name("semibold".into())),
-                BG,
-            );
-            let total = 18.0 + 9.0 + galley.size().x;
-            let sx = rect.center().x - total / 2.0;
-            let y = rect.center().y;
-            paint_icon(p, Pos2::new(sx + 9.0, y), ic::SAVE, 17.0, BG);
-            p.galley(Pos2::new(sx + 27.0, y - galley.size().y / 2.0), galley, BG);
-            if resp.clicked() {
-                // TODO: persist config
-            }
-
-            ui.add_space(10.0);
-            let (er, _eresp) = ui.allocate_exact_size(Vec2::new(52.0, 46.0), Sense::click());
-            ui.painter().rect(
-                er,
-                CornerRadius::same(12),
-                PANEL,
-                Stroke::new(1.0, LINE),
-                StrokeKind::Inside,
-            );
-            paint_icon(ui.painter(), er.center(), ic::UPLOAD, 18.0, accent);
-        });
-        ui.add_space(12.0);
-        ui.vertical_centered(|ui| {
-            ui.label(RichText::new("made by center2055").size(12.0).color(MUT));
-        });
-    }
 }
 
 fn accent_button(

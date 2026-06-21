@@ -10,7 +10,7 @@ The premium successor to [Citron Clicker](https://github.com/center2055/CitronCl
 
 ## Status
 
-Work in progress — the **interface is built**: branded title bar with the citron wordmark, tabbed layout, dual-handle CPS range sliders, click-distribution histogram, custom toggles, sound + settings panels, and a themeable accent colour. Still to come: the clicker engine, sound playback, key rebinding, and config persistence.
+Work in progress — the **interface is built**: branded title bar, tabbed layout, dual-handle CPS range sliders, click-distribution histogram, custom toggles, sound + settings panels, and a themeable accent colour. Configuration **auto-saves** to disk on every change (no save button). Still to come: the clicker engine, sound playback, and key rebinding.
 
 ## Building
 
