@@ -10,7 +10,7 @@ The premium successor to [Citron Clicker](https://github.com/center2055/CitronCl
 
 ## Status
 
-Early work in progress — **UI scaffold**. The interface (tabs, CPS sliders, toggles, sound/settings panels) is in place; the clicker engine and sound playback are not wired up yet.
+Work in progress — the **interface is built**: branded title bar with the citron wordmark, tabbed layout, dual-handle CPS range sliders, click-distribution histogram, custom toggles, sound + settings panels, and a themeable accent colour. Still to come: the clicker engine, sound playback, key rebinding, and config persistence.
 
 ## Building
 
@@ -35,6 +35,12 @@ cargo build --release
 - **Left Click** / **Right Click** — per-button configuration (independent)
 - **Sounds** — click-sound packs, custom files, volume
 - **Settings** — accent, startup, tray, panic key, updates
+
+## Credits
+
+- UI framework: [egui / eframe](https://github.com/emilk/egui)
+- Font: [Poppins](https://fonts.google.com/specimen/Poppins) (SIL Open Font License)
+- Icons: [Lucide](https://lucide.dev) (ISC License)
 
 ---
 
