@@ -21,6 +21,9 @@ pub struct EngineSignals {
     pub mc_focused: AtomicBool,
     pub any_focused: AtomicBool,
     pub running: AtomicBool,
+    /// Set by the UI while a key-rebind is armed: fully pauses the engine so the key/button
+    /// being bound does not also toggle or click.
+    pub capturing: AtomicBool,
 }
 
 /// Per-clicker config the engine reads. Built from the UI's `Clicker` each frame.
@@ -87,6 +90,7 @@ impl EngineHandle {
             mc_focused: AtomicBool::new(false),
             any_focused: AtomicBool::new(false),
             running: AtomicBool::new(true),
+            capturing: AtomicBool::new(false),
         });
         let config = Arc::new(Mutex::new(initial));
         let (tx, rx) = channel::<ToggleReq>();
@@ -244,10 +248,13 @@ fn clicker_loop(
         } else {
             sig.any_focused.load(Ordering::Relaxed)
         };
-        let gui_block = snap.avoid_gui && os::cursor_visible();
+        // Avoid GUI's cursor check only makes sense in-game (cursor is hidden during play, shown
+        // in menus). In "any window" mode the cursor is always visible, so don't let it block.
+        let gui_block = snap.avoid_gui && snap.only_ingame && os::cursor_visible();
         let phys = os::physical_button_held(is_left);
         let should = snap.enabled
             && !sig.panic.load(Ordering::Relaxed)
+            && !sig.capturing.load(Ordering::Relaxed)
             && focus_ok
             && !gui_block
             && !suspend
@@ -346,6 +353,18 @@ fn key_poll_loop(
         .unwrap_or_else(Instant::now);
 
     while sig.running.load(Ordering::Relaxed) {
+        // While a rebind is armed, don't toggle/suspend on the key being bound. Holding the
+        // *_was flags true means the just-bound (still-held) key requires a release before it fires.
+        if sig.capturing.load(Ordering::Relaxed) {
+            left_was = true;
+            right_was = true;
+            panic_was = true;
+            sig.suspend_left.store(false, Ordering::Relaxed);
+            sig.suspend_right.store(false, Ordering::Relaxed);
+            thread::sleep(Duration::from_millis(10));
+            continue;
+        }
+
         let snap = { cfg.lock().unwrap().clone() };
 
         sig.suspend_left.store(

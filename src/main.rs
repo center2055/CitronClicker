@@ -859,6 +859,12 @@ impl eframe::App for CitronApp {
             self.last_pack = self.pack;
         }
 
+        // Pause the engine entirely while a rebind is armed (so the key being bound can't toggle/click).
+        self.engine
+            .signals
+            .capturing
+            .store(self.rebind.is_some(), Ordering::Relaxed);
+
         if self.saved.as_ref() != Some(&self.snapshot()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(1100));
         }
