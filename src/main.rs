@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+mod audio;
 mod engine;
 mod os;
 
@@ -157,6 +158,22 @@ enum Tab {
     Settings,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum BindSlot {
+    Suspend,
+    Hotkey,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum RebindTarget {
+    Clicker { is_left: bool, slot: BindSlot },
+    Panic,
+}
+
+fn default_panic_key() -> String {
+    "F8".into()
+}
+
 #[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 enum Pack {
     Default,
@@ -196,6 +213,10 @@ struct Config {
     start_system: bool,
     tray: bool,
     autoupdate: bool,
+    #[serde(default = "default_panic_key")]
+    panic_key: String,
+    #[serde(default)]
+    custom_wav: Option<std::path::PathBuf>,
 }
 
 struct CitronApp {
@@ -219,6 +240,12 @@ struct CitronApp {
     engine: EngineHandle,
     last_pushed: Option<EngineConfig>,
     humanize_warn: Option<bool>,
+    rebind: Option<RebindTarget>,
+    rebind_armed_at: u64,
+    panic_key: String,
+    audio: Option<audio::AudioHandle>,
+    last_pack: Pack,
+    custom_wav: Option<std::path::PathBuf>,
 }
 
 fn snap_of(ck: &Clicker, is_left: bool, hold: bool) -> ClickerSnap {
@@ -290,13 +317,21 @@ impl CitronApp {
             jitter: false,
             only_ingame: true,
         };
+        let audio = audio::AudioHandle::spawn();
         let engine = EngineHandle::start(
             cc.egui_ctx.clone(),
             EngineConfig {
                 left: snap_of(&left, true, false),
                 right: snap_of(&right, false, true),
-                panic_vk: 0x77,
+                panic_vk: engine::vk_from_name("F8"),
+                audio: engine::AudioConfig {
+                    enabled: true,
+                    volume: 0.70,
+                    pitch_var: true,
+                    separate: false,
+                },
             },
+            audio.clone(),
         );
         let mut app = Self {
             tab: Tab::Left,
@@ -319,6 +354,12 @@ impl CitronApp {
             engine,
             last_pushed: None,
             humanize_warn: None,
+            rebind: None,
+            rebind_armed_at: 0,
+            panic_key: "F8".into(),
+            audio,
+            last_pack: Pack::Default,
+            custom_wav: None,
         };
         if let Some(storage) = cc.storage {
             if let Some(cfg) = eframe::get_value::<Config>(storage, "config") {
@@ -342,6 +383,8 @@ impl CitronApp {
             start_system: self.start_system,
             tray: self.tray,
             autoupdate: self.autoupdate,
+            panic_key: self.panic_key.clone(),
+            custom_wav: self.custom_wav.clone(),
         }
     }
 
@@ -358,13 +401,38 @@ impl CitronApp {
         self.start_system = c.start_system;
         self.tray = c.tray;
         self.autoupdate = c.autoupdate;
+        self.panic_key = c.panic_key;
+        self.custom_wav = c.custom_wav;
+        self.last_pack = self.pack;
+        // Reload a persisted custom sound, or fall back to Default if it's gone/invalid.
+        if self.pack == Pack::Custom {
+            let loaded = self.custom_wav.as_ref().and_then(|p| std::fs::read(p).ok());
+            match loaded {
+                Some(bytes) if audio::validate_wav(&bytes).is_ok() => {
+                    if let Some(a) = &self.audio {
+                        a.set_custom(bytes);
+                    }
+                }
+                _ => {
+                    self.pack = Pack::Default;
+                    self.custom_wav = None;
+                    self.last_pack = Pack::Default;
+                }
+            }
+        }
     }
 
     fn to_engine_config(&self) -> EngineConfig {
         EngineConfig {
             left: snap_of(&self.left, true, false),
             right: snap_of(&self.right, false, self.right_hold),
-            panic_vk: 0x77,
+            panic_vk: engine::vk_from_name(&self.panic_key),
+            audio: engine::AudioConfig {
+                enabled: self.sounds_on,
+                volume: self.volume / 100.0,
+                pitch_var: self.pitch_var,
+                separate: self.separate,
+            },
         }
     }
 
@@ -617,15 +685,63 @@ fn option_row(
     });
 }
 
-fn chip(ui: &mut egui::Ui, label: &str, accent: Color32) {
-    egui::Frame::default()
-        .fill(PANEL2)
-        .stroke(Stroke::new(1.0, LINE))
-        .corner_radius(CornerRadius::same(8))
-        .inner_margin(Margin::symmetric(12, 6))
-        .show(ui, |ui| {
-            ui.label(semibold(label, 12.5, accent));
-        });
+/// A clickable keybind pill. Shows "Press a key…" highlighted while listening. Returns clicked.
+fn bind_chip(ui: &mut egui::Ui, label: &str, listening: bool, accent: Color32) -> bool {
+    let txt = if listening { "Press a key\u{2026}" } else { label };
+    let font = FontId::new(12.5, egui::FontFamily::Name("semibold".into()));
+    let galley = ui.painter().layout_no_wrap(txt.to_string(), font.clone(), accent);
+    let size = galley.size() + Vec2::new(24.0, 12.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let (fill, stroke_col, txt_col) = if listening {
+        (accent, accent, BG)
+    } else if resp.hovered() {
+        (PANEL2, accent, accent)
+    } else {
+        (PANEL2, LINE, accent)
+    };
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(8),
+        fill,
+        Stroke::new(1.0, stroke_col),
+        StrokeKind::Inside,
+    );
+    let g = ui.painter().layout_no_wrap(txt.to_string(), font, txt_col);
+    ui.painter().galley(rect.center() - g.size() / 2.0, g, txt_col);
+    resp.clicked()
+}
+
+fn listening_for(rb: Option<RebindTarget>, is_left: bool, slot: BindSlot) -> bool {
+    matches!(rb, Some(RebindTarget::Clicker { is_left: l, slot: s }) if l == is_left && s == slot)
+}
+
+fn key_name(k: egui::Key) -> Option<&'static str> {
+    use egui::Key::*;
+    Some(match k {
+        Escape => "None",
+        Space => "Space",
+        Tab => "Tab",
+        A => "A", B => "B", C => "C", D => "D", E => "E", F => "F", G => "G", H => "H",
+        I => "I", J => "J", K => "K", L => "L", M => "M", N => "N", O => "O", P => "P",
+        Q => "Q", R => "R", S => "S", T => "T", U => "U", V => "V", W => "W", X => "X",
+        Y => "Y", Z => "Z",
+        Num0 => "0", Num1 => "1", Num2 => "2", Num3 => "3", Num4 => "4",
+        Num5 => "5", Num6 => "6", Num7 => "7", Num8 => "8", Num9 => "9",
+        F1 => "F1", F2 => "F2", F3 => "F3", F4 => "F4", F5 => "F5", F6 => "F6",
+        F7 => "F7", F8 => "F8", F9 => "F9", F10 => "F10", F11 => "F11", F12 => "F12",
+        _ => return None,
+    })
+}
+
+fn button_name(b: egui::PointerButton) -> &'static str {
+    use egui::PointerButton::*;
+    match b {
+        Primary => "Left Click",
+        Secondary => "Right Click",
+        Middle => "Middle Click",
+        Extra1 => "Mouse 4",
+        Extra2 => "Mouse 5",
+    }
 }
 
 fn two_col(ui: &mut egui::Ui, a: impl FnOnce(&mut egui::Ui), b: impl FnOnce(&mut egui::Ui)) {
@@ -670,8 +786,47 @@ impl eframe::App for CitronApp {
         // widget: clicks/drags on toggles, sliders, tabs etc. hit those first; a drag that
         // starts on empty space falls through to here and moves the window.
         let win_drag = ui.interact(win, egui::Id::new("window_drag"), Sense::click_and_drag());
-        if win_drag.drag_started() {
+        if win_drag.drag_started() && self.rebind.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+
+        // Key-rebind capture: while armed, grab the first key/mouse press and map it to a name.
+        if let Some(target) = self.rebind {
+            let armed_at = self.rebind_armed_at;
+            let this_frame = ctx.cumulative_frame_nr();
+            let captured: Option<String> = ctx.input(|i| {
+                for ev in &i.events {
+                    match ev {
+                        egui::Event::Key { key, pressed: true, repeat: false, .. } => {
+                            if let Some(name) = key_name(*key) {
+                                return Some(name.to_string());
+                            }
+                        }
+                        egui::Event::PointerButton { button, pressed: true, .. } => {
+                            if this_frame == armed_at {
+                                continue; // ignore the click that armed the rebind
+                            }
+                            return Some(button_name(*button).to_string());
+                        }
+                        _ => {}
+                    }
+                }
+                None
+            });
+            if let Some(name) = captured {
+                match target {
+                    RebindTarget::Clicker { is_left, slot } => {
+                        let ck = if is_left { &mut self.left } else { &mut self.right };
+                        match slot {
+                            BindSlot::Suspend => ck.suspend = name,
+                            BindSlot::Hotkey => ck.hotkey = name,
+                        }
+                    }
+                    RebindTarget::Panic => self.panic_key = name,
+                }
+                self.rebind = None;
+            }
+            ctx.request_repaint();
         }
 
         egui::Panel::top("titlebar")
@@ -693,6 +848,16 @@ impl eframe::App for CitronApp {
 
         self.humanize_modal(&ctx, win);
         self.sync_engine();
+
+        // Pack change -> tell the audio thread which sound to load (Custom is set at pick time).
+        if self.pack != self.last_pack {
+            if self.pack == Pack::Default {
+                if let Some(a) = &self.audio {
+                    a.set_default();
+                }
+            }
+            self.last_pack = self.pack;
+        }
 
         if self.saved.as_ref() != Some(&self.snapshot()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(1100));
@@ -784,7 +949,10 @@ impl CitronApp {
     fn clicker_tab(&mut self, ui: &mut egui::Ui, is_left: bool) {
         let accent = self.accent;
         let histo = self.histo.clone();
+        let rebind = self.rebind;
         let mut warn = false;
+        let mut arm_susp = false;
+        let mut arm_hot = false;
         let ck = if is_left { &mut self.left } else { &mut self.right };
         let title = if is_left { "LEFT CLICKER" } else { "RIGHT CLICKER" };
 
@@ -839,12 +1007,26 @@ impl CitronApp {
             ui,
             |ui| {
                 option_row(ui, ic::PAUSE, "Suspend key", "Hold to pause", accent, |ui| {
-                    chip(ui, ck.suspend.as_str(), accent)
+                    if bind_chip(
+                        ui,
+                        ck.suspend.as_str(),
+                        listening_for(rebind, is_left, BindSlot::Suspend),
+                        accent,
+                    ) {
+                        arm_susp = true;
+                    }
                 })
             },
             |ui| {
                 option_row(ui, ic::KEYBOARD, "Toggle hotkey", "Click to rebind", accent, |ui| {
-                    chip(ui, ck.hotkey.as_str(), accent)
+                    if bind_chip(
+                        ui,
+                        ck.hotkey.as_str(),
+                        listening_for(rebind, is_left, BindSlot::Hotkey),
+                        accent,
+                    ) {
+                        arm_hot = true;
+                    }
                 })
             },
         );
@@ -885,6 +1067,13 @@ impl CitronApp {
         if warn {
             self.humanize_warn = Some(is_left);
         }
+        if arm_susp {
+            self.rebind = Some(RebindTarget::Clicker { is_left, slot: BindSlot::Suspend });
+            self.rebind_armed_at = ui.ctx().cumulative_frame_nr();
+        } else if arm_hot {
+            self.rebind = Some(RebindTarget::Clicker { is_left, slot: BindSlot::Hotkey });
+            self.rebind_armed_at = ui.ctx().cumulative_frame_nr();
+        }
     }
 
     fn sounds_tab(&mut self, ui: &mut egui::Ui) {
@@ -917,7 +1106,28 @@ impl CitronApp {
                             });
                         });
                     if r.response.interact(Sense::click()).clicked() {
-                        self.pack = p;
+                        match p {
+                            Pack::Default => self.pack = Pack::Default,
+                            Pack::Custom => {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("WAV audio", &["wav"])
+                                    .set_title("Choose click sound")
+                                    .pick_file()
+                                {
+                                    match std::fs::read(&path) {
+                                        Ok(bytes) if audio::validate_wav(&bytes).is_ok() => {
+                                            if let Some(a) = &self.audio {
+                                                a.set_custom(bytes);
+                                            }
+                                            self.custom_wav = Some(path);
+                                            self.pack = Pack::Custom;
+                                            self.last_pack = Pack::Custom;
+                                        }
+                                        _ => {} // unreadable / not a decodable WAV: keep current
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -956,12 +1166,17 @@ impl CitronApp {
         );
         ui.add_space(12.0);
         if accent_button(ui, ic::PLAY, "Preview click", accent, PANEL2).clicked() {
-            // TODO: play selected sound
+            if let Some(a) = &self.audio {
+                a.preview();
+            }
         }
     }
 
     fn settings_tab(&mut self, ui: &mut egui::Ui) {
         let accent = self.accent;
+        let panic_listening = self.rebind == Some(RebindTarget::Panic);
+        let panic_label = self.panic_key.clone();
+        let mut arm_panic = false;
         card().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -1011,8 +1226,10 @@ impl CitronApp {
         two_col(
             ui,
             |ui| {
-                option_row(ui, ic::ZAP, "Panic key", "Instantly disable all", accent, |ui| {
-                    chip(ui, "F8", accent)
+                option_row(ui, ic::ZAP, "Panic key", "Click to rebind", accent, |ui| {
+                    if bind_chip(ui, &panic_label, panic_listening, accent) {
+                        arm_panic = true;
+                    }
                 })
             },
             |ui| {
@@ -1021,6 +1238,10 @@ impl CitronApp {
                 })
             },
         );
+        if arm_panic {
+            self.rebind = Some(RebindTarget::Panic);
+            self.rebind_armed_at = ui.ctx().cumulative_frame_nr();
+        }
     }
 
     fn humanize_modal(&mut self, ctx: &egui::Context, win: Rect) {

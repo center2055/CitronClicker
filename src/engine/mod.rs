@@ -41,11 +41,20 @@ pub struct ClickerSnap {
     pub is_left: bool,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub struct AudioConfig {
+    pub enabled: bool,
+    pub volume: f32,
+    pub pitch_var: bool,
+    pub separate: bool,
+}
+
 #[derive(Clone, PartialEq)]
 pub struct EngineConfig {
     pub left: ClickerSnap,
     pub right: ClickerSnap,
     pub panic_vk: i32,
+    pub audio: AudioConfig,
 }
 
 pub enum ToggleReq {
@@ -63,7 +72,11 @@ pub struct EngineHandle {
 }
 
 impl EngineHandle {
-    pub fn start(ctx: egui::Context, initial: EngineConfig) -> Self {
+    pub fn start(
+        ctx: egui::Context,
+        initial: EngineConfig,
+        audio: Option<crate::audio::AudioHandle>,
+    ) -> Self {
         os::begin_timer_period();
         let hook_tid = os::start_input_hook();
 
@@ -82,7 +95,8 @@ impl EngineHandle {
         for is_left in [true, false] {
             let s = signals.clone();
             let c = config.clone();
-            joins.push(thread::spawn(move || clicker_loop(is_left, s, c)));
+            let a = audio.clone();
+            joins.push(thread::spawn(move || clicker_loop(is_left, s, c, a)));
         }
         {
             let s = signals.clone();
@@ -199,7 +213,12 @@ fn precise_delay(ms: f64, sig: &EngineSignals, is_left: bool) {
     }
 }
 
-fn clicker_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineConfig>>) {
+fn clicker_loop(
+    is_left: bool,
+    sig: Arc<EngineSignals>,
+    cfg: Arc<Mutex<EngineConfig>>,
+    audio: Option<crate::audio::AudioHandle>,
+) {
     let mut rng = Rng::seeded(if is_left { 0xA17 } else { 0xB29 });
     let mut hd = HumanizedDelay::new();
     let mut jit = SmoothJitter::new();
@@ -207,9 +226,12 @@ fn clicker_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineCon
     let mut was_clicking = false;
 
     while sig.running.load(Ordering::Relaxed) {
-        let snap = {
+        let (snap, audio_cfg) = {
             let c = cfg.lock().unwrap();
-            if is_left { c.left.clone() } else { c.right.clone() }
+            (
+                if is_left { c.left.clone() } else { c.right.clone() },
+                c.audio,
+            )
         };
 
         let suspend = if is_left {
@@ -235,6 +257,7 @@ fn clicker_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineCon
         if should && snap.hold && !is_left {
             if !was_clicking {
                 os::click_down(false);
+                play_click(&audio, audio_cfg);
                 was_clicking = true;
                 jit.reset();
             }
@@ -261,6 +284,9 @@ fn clicker_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineCon
             let (comp_up, comp_down) = sched.next(up_ms, down_ms);
 
             os::click_up(is_left);
+            if audio_cfg.separate {
+                play_click(&audio, audio_cfg);
+            }
             if snap.jitter {
                 if let Some((dx, dy)) = jit.next(snap.jitter_intensity, &mut rng) {
                     os::jitter_move(dx, dy);
@@ -271,6 +297,7 @@ fn clicker_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineCon
                 continue; // released mid-cycle; else-branch next loop emits the trailing UP
             }
             os::click_down(is_left);
+            play_click(&audio, audio_cfg);
             precise_delay(comp_down, &sig, is_left);
         } else {
             if was_clicking {
@@ -284,6 +311,25 @@ fn clicker_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineCon
     if was_clicking {
         os::click_up(is_left); // never leave a button stuck down on shutdown
     }
+}
+
+fn play_click(audio: &Option<crate::audio::AudioHandle>, cfg: AudioConfig) {
+    if let (Some(a), true) = (audio, cfg.enabled) {
+        let speed = if cfg.pitch_var { pitch_jitter() } else { 1.0 };
+        a.play(crate::audio::PlayParams {
+            volume: cfg.volume,
+            speed,
+        });
+    }
+}
+
+fn pitch_jitter() -> f32 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    1.0 + ((n % 1000) as f32 / 1000.0 - 0.5) * 0.12
 }
 
 fn key_poll_loop(
