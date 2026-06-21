@@ -24,6 +24,7 @@ const TRACK: Color32 = Color32::from_rgb(42, 47, 36);
 const TXT: Color32 = Color32::from_rgb(238, 243, 230);
 const MUT: Color32 = Color32::from_rgb(140, 148, 136);
 const KNOB_OFF: Color32 = Color32::from_rgb(207, 212, 198);
+const LOGO_H: f32 = 30.0; // title-bar logo height, in logical points
 
 mod ic {
     pub const MOUSE: char = '\u{e28e}';
@@ -97,6 +98,26 @@ fn load_icon() -> egui::IconData {
         width: side,
         height: side,
     }
+}
+
+/// Render the wordmark to a texture at the EXACT device-pixel size it will display at, so it
+/// draws 1:1 (crisp, like a font glyph) instead of being mipmap-downscaled (soft). Re-baked
+/// when the DPI (pixels_per_point) changes.
+fn bake_logo(ctx: &egui::Context, ppp: f32) -> (egui::TextureHandle, f32) {
+    let img = image::load_from_memory(include_bytes!("../assets/citron_logo.png"))
+        .expect("logo")
+        .to_rgba8();
+    let aspect = img.width() as f32 / img.height() as f32;
+    let h_px = (LOGO_H * ppp).round().max(1.0) as u32;
+    let w_px = ((h_px as f32) * aspect).round().max(1.0) as u32;
+    let resized = image::imageops::resize(&img, w_px, h_px, image::imageops::FilterType::Lanczos3);
+    let color = egui::ColorImage::from_rgba_unmultiplied(
+        [resized.width() as usize, resized.height() as usize],
+        resized.as_raw(),
+    );
+    // No mipmaps: the texture is already at display resolution, so it samples 1:1.
+    let tex = ctx.load_texture("citron_logo", color, egui::TextureOptions::LINEAR);
+    (tex, aspect)
 }
 
 fn setup_fonts(ctx: &egui::Context) {
@@ -235,6 +256,7 @@ struct CitronApp {
     histo: Vec<f32>,
     logo: egui::TextureHandle,
     logo_aspect: f32,
+    logo_ppp: f32,
     saved: Option<Config>,
     engine: EngineHandle,
     last_pushed: Option<EngineConfig>,
@@ -266,21 +288,8 @@ fn snap_of(ck: &Clicker, is_left: bool) -> ClickerSnap {
 
 impl CitronApp {
     fn new(cc: &eframe::CreationContext) -> Self {
-        let img = image::load_from_memory(include_bytes!("../assets/citron_logo.png"))
-            .expect("logo")
-            .to_rgba8();
-        let size = [img.width() as usize, img.height() as usize];
-        let color_img = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
-        // Mipmaps keep the wordmark crisp when scaled down to the title bar height.
-        let logo = cc.egui_ctx.load_texture(
-            "citron_logo",
-            color_img,
-            egui::TextureOptions {
-                mipmap_mode: Some(egui::TextureFilter::Linear),
-                ..egui::TextureOptions::LINEAR
-            },
-        );
-        let logo_aspect = size[0] as f32 / size[1] as f32;
+        let logo_ppp = cc.egui_ctx.pixels_per_point();
+        let (logo, logo_aspect) = bake_logo(&cc.egui_ctx, logo_ppp);
 
         let histo = (0..46)
             .map(|i| {
@@ -348,6 +357,7 @@ impl CitronApp {
             histo,
             logo,
             logo_aspect,
+            logo_ppp,
             saved: None,
             engine,
             last_pushed: None,
@@ -445,6 +455,16 @@ impl CitronApp {
         if self.last_pushed.as_ref() != Some(&ec) {
             *self.engine.config.lock().unwrap() = ec.clone();
             self.last_pushed = Some(ec);
+        }
+    }
+
+    fn ensure_logo(&mut self, ctx: &egui::Context) {
+        let ppp = ctx.pixels_per_point();
+        if (ppp - self.logo_ppp).abs() > 0.01 {
+            let (tex, aspect) = bake_logo(ctx, ppp);
+            self.logo = tex;
+            self.logo_aspect = aspect;
+            self.logo_ppp = ppp;
         }
     }
 }
@@ -764,6 +784,7 @@ impl eframe::App for CitronApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.ensure_logo(&ctx);
         let win = ctx.content_rect();
         ui.painter().rect(
             win.shrink(0.5),
@@ -875,7 +896,7 @@ impl CitronApp {
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    let lh = 28.0;
+                    let lh = LOGO_H;
                     let (lr, _) =
                         ui.allocate_exact_size(Vec2::new(lh * self.logo_aspect, lh), Sense::hover());
                     ui.painter().image(
