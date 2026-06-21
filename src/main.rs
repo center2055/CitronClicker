@@ -37,7 +37,6 @@ mod ic {
     pub const SPARKLES: char = '\u{e412}';
     pub const ACTIVITY: char = '\u{e038}';
     pub const GAMEPAD: char = '\u{e0df}';
-    pub const HAND: char = '\u{e1d7}';
     pub const UPLOAD: char = '\u{e19e}';
     pub const SLIDERS: char = '\u{e29a}';
     pub const SPLIT: char = '\u{e440}';
@@ -55,7 +54,7 @@ mod ic {
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([720.0, 800.0])
+            .with_inner_size([720.0, 730.0])
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)
@@ -65,9 +64,9 @@ fn main() -> eframe::Result {
         // and overrides any restored geometry. Config still auto-saves separately.
         persist_window: false,
         window_builder: Some(Box::new(|vb| {
-            vb.with_inner_size([720.0, 800.0])
-                .with_min_inner_size([720.0, 800.0])
-                .with_max_inner_size([720.0, 800.0])
+            vb.with_inner_size([720.0, 730.0])
+                .with_min_inner_size([720.0, 730.0])
+                .with_max_inner_size([720.0, 730.0])
         })),
         ..Default::default()
     };
@@ -248,7 +247,7 @@ struct CitronApp {
     custom_wav: Option<std::path::PathBuf>,
 }
 
-fn snap_of(ck: &Clicker, is_left: bool, hold: bool) -> ClickerSnap {
+fn snap_of(ck: &Clicker, is_left: bool) -> ClickerSnap {
     ClickerSnap {
         enabled: ck.enabled,
         min_cps: ck.min_cps,
@@ -259,7 +258,6 @@ fn snap_of(ck: &Clicker, is_left: bool, hold: bool) -> ClickerSnap {
         jitter: ck.jitter,
         jitter_intensity: 2,
         only_ingame: ck.only_ingame,
-        hold,
         suspend_vk: engine::vk_from_name(&ck.suspend),
         hotkey_vk: engine::vk_from_name(&ck.hotkey),
         is_left,
@@ -321,8 +319,8 @@ impl CitronApp {
         let engine = EngineHandle::start(
             cc.egui_ctx.clone(),
             EngineConfig {
-                left: snap_of(&left, true, false),
-                right: snap_of(&right, false, true),
+                left: snap_of(&left, true),
+                right: snap_of(&right, false),
                 panic_vk: engine::vk_from_name("F8"),
                 audio: engine::AudioConfig {
                     enabled: true,
@@ -424,8 +422,8 @@ impl CitronApp {
 
     fn to_engine_config(&self) -> EngineConfig {
         EngineConfig {
-            left: snap_of(&self.left, true, false),
-            right: snap_of(&self.right, false, self.right_hold),
+            left: snap_of(&self.left, true),
+            right: snap_of(&self.right, false),
             panic_vk: engine::vk_from_name(&self.panic_key),
             audio: engine::AudioConfig {
                 enabled: self.sounds_on,
@@ -441,17 +439,10 @@ impl CitronApp {
             match req {
                 ToggleReq::Left => self.left.enabled = !self.left.enabled,
                 ToggleReq::Right => self.right.enabled = !self.right.enabled,
-                ToggleReq::PanicAll => {
-                    self.left.enabled = false;
-                    self.right.enabled = false;
-                }
             }
         }
         let ec = self.to_engine_config();
         if self.last_pushed.as_ref() != Some(&ec) {
-            if ec.left.enabled || ec.right.enabled {
-                self.engine.signals.panic.store(false, Ordering::Relaxed);
-            }
             *self.engine.config.lock().unwrap() = ec.clone();
             self.last_pushed = Some(ec);
         }
@@ -1002,13 +993,6 @@ impl CitronApp {
 
         ui.add_space(12.0);
 
-        if !is_left {
-            option_row(ui, ic::HAND, "Hold mode", "Hold to place / eat (no clicks)", accent, |ui| {
-                toggle(ui, &mut self.right_hold, accent);
-            });
-            ui.add_space(10.0);
-        }
-
         two_col(
             ui,
             |ui| {
@@ -1232,7 +1216,7 @@ impl CitronApp {
         two_col(
             ui,
             |ui| {
-                option_row(ui, ic::ZAP, "Panic key", "Click to rebind", accent, |ui| {
+                option_row(ui, ic::ZAP, "Panic key", "", accent, |ui| {
                     if bind_chip(ui, &panic_label, panic_listening, accent) {
                         arm_panic = true;
                     }

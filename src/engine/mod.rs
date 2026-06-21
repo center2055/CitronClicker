@@ -38,7 +38,6 @@ pub struct ClickerSnap {
     pub jitter: bool,
     pub jitter_intensity: i32,
     pub only_ingame: bool,
-    pub hold: bool,
     pub suspend_vk: i32,
     pub hotkey_vk: i32,
     pub is_left: bool,
@@ -63,7 +62,6 @@ pub struct EngineConfig {
 pub enum ToggleReq {
     Left,
     Right,
-    PanicAll,
 }
 
 pub struct EngineHandle {
@@ -261,23 +259,6 @@ fn clicker_loop(
             && !suspend
             && phys;
 
-        // Hold mode (right only): one sustained right-button-down while held — place / eat / block.
-        if should && snap.hold && !is_left {
-            if !was_clicking {
-                os::click_down(false);
-                play_click(&audio, audio_cfg);
-                was_clicking = true;
-                jit.reset();
-            }
-            if snap.jitter {
-                if let Some((dx, dy)) = jit.next(snap.jitter_intensity, &mut rng) {
-                    os::jitter_move(dx, dy);
-                }
-            }
-            thread::sleep(Duration::from_millis(10));
-            continue;
-        }
-
         if should {
             if !was_clicking {
                 sched.reset();
@@ -388,8 +369,8 @@ fn key_poll_loop(
         if snap.panic_vk != 0 {
             let p = os::key_held(snap.panic_vk);
             if p && !panic_was {
-                sig.panic.store(true, Ordering::Relaxed);
-                let _ = tx.send(ToggleReq::PanicAll);
+                sig.panic.store(true, Ordering::Relaxed); // stop clicking instantly
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close); // panic = quit the app
                 ctx.request_repaint();
             }
             panic_was = p;
