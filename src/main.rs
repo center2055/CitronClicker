@@ -67,7 +67,7 @@ fn main() -> eframe::Result {
 }
 
 fn load_icon() -> egui::IconData {
-    let img = image::load_from_memory(include_bytes!("../assets/citron_logo.png"))
+    let img = image::load_from_memory(include_bytes!("../assets/citron_fruit.png"))
         .expect("logo")
         .to_rgba8();
     let (w, h) = (img.width(), img.height());
@@ -204,9 +204,15 @@ impl CitronApp {
             .to_rgba8();
         let size = [img.width() as usize, img.height() as usize];
         let color_img = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
-        let logo = cc
-            .egui_ctx
-            .load_texture("citron_logo", color_img, egui::TextureOptions::LINEAR);
+        // Mipmaps keep the wordmark crisp when scaled down to the title bar height.
+        let logo = cc.egui_ctx.load_texture(
+            "citron_logo",
+            color_img,
+            egui::TextureOptions {
+                mipmap_mode: Some(egui::TextureFilter::Linear),
+                ..egui::TextureOptions::LINEAR
+            },
+        );
         let logo_aspect = size[0] as f32 / size[1] as f32;
 
         let histo = (0..46)
@@ -520,6 +526,14 @@ impl eframe::App for CitronApp {
             StrokeKind::Inside,
         );
 
+        // Drag the window from anywhere. Added before the panels so it sits beneath every
+        // widget: clicks/drags on toggles, sliders, tabs etc. hit those first; a drag that
+        // starts on empty space falls through to here and moves the window.
+        let win_drag = ui.interact(win, egui::Id::new("window_drag"), Sense::click_and_drag());
+        if win_drag.drag_started() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+
         egui::Panel::top("titlebar")
             .frame(egui::Frame::default().fill(BG))
             .show_separator_line(false)
@@ -555,25 +569,15 @@ impl CitronApp {
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    let cluster = ui
-                        .horizontal(|ui| {
-                            let lh = 26.0;
-                            let (lr, _) = ui.allocate_exact_size(
-                                Vec2::new(lh * self.logo_aspect, lh),
-                                Sense::hover(),
-                            );
-                            ui.painter().image(
-                                self.logo.id(),
-                                lr,
-                                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
-                                self.accent,
-                            );
-                        })
-                        .response
-                        .interact(Sense::click_and_drag());
-                    if cluster.drag_started() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                    }
+                    let lh = 26.0;
+                    let (lr, _) =
+                        ui.allocate_exact_size(Vec2::new(lh * self.logo_aspect, lh), Sense::hover());
+                    ui.painter().image(
+                        self.logo.id(),
+                        lr,
+                        Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
+                        self.accent,
+                    );
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if win_btn(ui, ic::CLOSE).clicked() {
