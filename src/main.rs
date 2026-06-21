@@ -875,7 +875,7 @@ impl CitronApp {
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    let lh = 26.0;
+                    let lh = 28.0;
                     let (lr, _) =
                         ui.allocate_exact_size(Vec2::new(lh * self.logo_aspect, lh), Sense::hover());
                     ui.painter().image(
