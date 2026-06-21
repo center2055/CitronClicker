@@ -41,6 +41,7 @@ cargo build --release
 - UI framework: [egui / eframe](https://github.com/emilk/egui)
 - Font: [Poppins](https://fonts.google.com/specimen/Poppins) (SIL Open Font License)
 - Icons: [Lucide](https://lucide.dev) (ISC License)
+- Default click sound: [Arsenic Client](https://github.com/ArsenicClient/Arsenic) (MIT License)
 
 ---
 

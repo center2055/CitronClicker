@@ -18,11 +18,9 @@ const MUT: Color32 = Color32::from_rgb(140, 148, 136);
 const KNOB_OFF: Color32 = Color32::from_rgb(207, 212, 198);
 
 mod ic {
-    pub const TARGET: char = '\u{e180}';
     pub const MOUSE: char = '\u{e28e}';
     pub const VOLUME: char = '\u{e1ab}';
     pub const SETTINGS: char = '\u{e154}';
-    pub const CROWN: char = '\u{e1d6}';
     pub const MINUS: char = '\u{e11c}';
     pub const CLOSE: char = '\u{e1b2}';
     pub const PAUSE: char = '\u{e12e}';
@@ -146,10 +144,7 @@ enum Tab {
 
 #[derive(PartialEq, Clone, Copy)]
 enum Pack {
-    Soft,
-    Click,
-    Mechanical,
-    Pop,
+    Default,
     Custom,
 }
 
@@ -231,7 +226,7 @@ impl CitronApp {
             },
             right_hold: true,
             sounds_on: true,
-            pack: Pack::Soft,
+            pack: Pack::Default,
             volume: 70.0,
             separate: false,
             pitch_var: true,
@@ -519,8 +514,6 @@ impl CitronApp {
                                 Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
                                 self.accent,
                             );
-                            ui.add_space(4.0);
-                            crown_badge(ui, self.accent);
                         })
                         .response
                         .interact(Sense::click_and_drag());
@@ -545,7 +538,7 @@ impl CitronApp {
 
     fn tab_bar(&mut self, ui: &mut egui::Ui) {
         let tabs = [
-            (Tab::Left, "LEFT CLICK", ic::TARGET),
+            (Tab::Left, "LEFT CLICK", ic::MOUSE),
             (Tab::Right, "RIGHT CLICK", ic::MOUSE),
             (Tab::Sounds, "SOUNDS", ic::VOLUME),
             (Tab::Settings, "SETTINGS", ic::SETTINGS),
@@ -722,10 +715,7 @@ impl CitronApp {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = Vec2::new(8.0, 8.0);
                 for (p, name, glyph) in [
-                    (Pack::Soft, "Soft", ic::DISC),
-                    (Pack::Click, "Click", ic::DISC),
-                    (Pack::Mechanical, "Mechanical", ic::KEYBOARD),
-                    (Pack::Pop, "Pop", ic::DISC),
+                    (Pack::Default, "Default", ic::DISC),
                     (Pack::Custom, "Load custom .wav", ic::UPLOAD),
                 ] {
                     let sel = self.pack == p;
@@ -937,20 +927,6 @@ fn win_btn(ui: &mut egui::Ui, glyph: char) -> egui::Response {
     }
     paint_icon(ui.painter(), rect.center(), glyph, 16.0, col);
     resp
-}
-
-fn crown_badge(ui: &mut egui::Ui, accent: Color32) {
-    egui::Frame::default()
-        .fill(accent)
-        .corner_radius(CornerRadius::same(6))
-        .inner_margin(Margin::symmetric(9, 4))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label(iconrt(ic::CROWN, 11.0, BG));
-                ui.label(semibold("PREMIUM", 10.5, BG).extra_letter_spacing(1.0));
-            });
-        });
 }
 
 fn status_pill(ui: &mut egui::Ui) {
