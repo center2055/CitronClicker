@@ -7,6 +7,12 @@ use egui::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
+mod engine;
+mod os;
+
+use engine::{ClickerSnap, EngineConfig, EngineHandle, ToggleReq};
 
 const BG: Color32 = Color32::from_rgb(10, 13, 8);
 const PANEL: Color32 = Color32::from_rgb(17, 21, 14);
@@ -48,7 +54,7 @@ mod ic {
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([720.0, 730.0])
+            .with_inner_size([720.0, 800.0])
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)
@@ -58,9 +64,9 @@ fn main() -> eframe::Result {
         // and overrides any restored geometry. Config still auto-saves separately.
         persist_window: false,
         window_builder: Some(Box::new(|vb| {
-            vb.with_inner_size([720.0, 730.0])
-                .with_min_inner_size([720.0, 730.0])
-                .with_max_inner_size([720.0, 730.0])
+            vb.with_inner_size([720.0, 800.0])
+                .with_min_inner_size([720.0, 800.0])
+                .with_max_inner_size([720.0, 800.0])
         })),
         ..Default::default()
     };
@@ -157,11 +163,17 @@ enum Pack {
     Custom,
 }
 
+fn default_cps() -> f32 {
+    13.0
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct Clicker {
     enabled: bool,
     min_cps: f32,
     max_cps: f32,
+    #[serde(default = "default_cps")]
+    cps: f32,
     suspend: String,
     hotkey: String,
     avoid_gui: bool,
@@ -204,6 +216,27 @@ struct CitronApp {
     logo: egui::TextureHandle,
     logo_aspect: f32,
     saved: Option<Config>,
+    engine: EngineHandle,
+    last_pushed: Option<EngineConfig>,
+    humanize_warn: Option<bool>,
+}
+
+fn snap_of(ck: &Clicker, is_left: bool, hold: bool) -> ClickerSnap {
+    ClickerSnap {
+        enabled: ck.enabled,
+        min_cps: ck.min_cps,
+        max_cps: ck.max_cps,
+        cps: ck.cps,
+        avoid_gui: ck.avoid_gui,
+        humanize: ck.humanize,
+        jitter: ck.jitter,
+        jitter_intensity: 2,
+        only_ingame: ck.only_ingame,
+        hold,
+        suspend_vk: engine::vk_from_name(&ck.suspend),
+        hotkey_vk: engine::vk_from_name(&ck.hotkey),
+        is_left,
+    }
 }
 
 impl CitronApp {
@@ -233,30 +266,42 @@ impl CitronApp {
             })
             .collect();
 
+        let left = Clicker {
+            enabled: true,
+            min_cps: 13.0,
+            max_cps: 19.0,
+            cps: 16.0,
+            suspend: "Mouse 5".into(),
+            hotkey: "V".into(),
+            avoid_gui: true,
+            humanize: true,
+            jitter: false,
+            only_ingame: true,
+        };
+        let right = Clicker {
+            enabled: false,
+            min_cps: 8.0,
+            max_cps: 12.0,
+            cps: 10.0,
+            suspend: "None".into(),
+            hotkey: "None".into(),
+            avoid_gui: true,
+            humanize: true,
+            jitter: false,
+            only_ingame: true,
+        };
+        let engine = EngineHandle::start(
+            cc.egui_ctx.clone(),
+            EngineConfig {
+                left: snap_of(&left, true, false),
+                right: snap_of(&right, false, true),
+                panic_vk: 0x77,
+            },
+        );
         let mut app = Self {
             tab: Tab::Left,
-            left: Clicker {
-                enabled: true,
-                min_cps: 13.0,
-                max_cps: 19.0,
-                suspend: "Mouse 5".into(),
-                hotkey: "V".into(),
-                avoid_gui: true,
-                humanize: true,
-                jitter: false,
-                only_ingame: true,
-            },
-            right: Clicker {
-                enabled: false,
-                min_cps: 8.0,
-                max_cps: 12.0,
-                suspend: "None".into(),
-                hotkey: "None".into(),
-                avoid_gui: true,
-                humanize: true,
-                jitter: false,
-                only_ingame: true,
-            },
+            left,
+            right,
             right_hold: true,
             sounds_on: true,
             pack: Pack::Default,
@@ -271,6 +316,9 @@ impl CitronApp {
             logo,
             logo_aspect,
             saved: None,
+            engine,
+            last_pushed: None,
+            humanize_warn: None,
         };
         if let Some(storage) = cc.storage {
             if let Some(cfg) = eframe::get_value::<Config>(storage, "config") {
@@ -310,6 +358,41 @@ impl CitronApp {
         self.start_system = c.start_system;
         self.tray = c.tray;
         self.autoupdate = c.autoupdate;
+    }
+
+    fn to_engine_config(&self) -> EngineConfig {
+        EngineConfig {
+            left: snap_of(&self.left, true, false),
+            right: snap_of(&self.right, false, self.right_hold),
+            panic_vk: 0x77,
+        }
+    }
+
+    fn sync_engine(&mut self) {
+        while let Ok(req) = self.engine.toggle_rx.try_recv() {
+            match req {
+                ToggleReq::Left => self.left.enabled = !self.left.enabled,
+                ToggleReq::Right => self.right.enabled = !self.right.enabled,
+                ToggleReq::PanicAll => {
+                    self.left.enabled = false;
+                    self.right.enabled = false;
+                }
+            }
+        }
+        let ec = self.to_engine_config();
+        if self.last_pushed.as_ref() != Some(&ec) {
+            if ec.left.enabled || ec.right.enabled {
+                self.engine.signals.panic.store(false, Ordering::Relaxed);
+            }
+            *self.engine.config.lock().unwrap() = ec.clone();
+            self.last_pushed = Some(ec);
+        }
+    }
+}
+
+impl Drop for CitronApp {
+    fn drop(&mut self) {
+        self.engine.shutdown();
     }
 }
 
@@ -461,6 +544,54 @@ fn histogram(ui: &mut egui::Ui, histo: &[f32], accent: Color32) {
     }
 }
 
+fn avg_pill(ui: &mut egui::Ui, avg_value: f32, accent: Color32) {
+    let (row, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 28.0), Sense::hover());
+    let avg = format!("{:.1}", avg_value);
+    let p = ui.painter();
+    let g_lbl = p.layout_no_wrap("Avg cps".to_string(), FontId::proportional(12.5), MUT);
+    let g_val = p.layout_no_wrap(
+        avg,
+        FontId::new(12.5, egui::FontFamily::Name("semibold".into())),
+        accent,
+    );
+    let (lbl_sz, val_sz) = (g_lbl.size(), g_val.size());
+    let (pad, gap, icon_w) = (12.0, 6.0, 15.0);
+    let content_w = icon_w + gap + lbl_sz.x + gap + val_sz.x;
+    let pill = Rect::from_center_size(row.center(), Vec2::new(content_w + pad * 2.0, 26.0));
+    p.rect(pill, CornerRadius::same(9), PANEL2, Stroke::new(1.0, LINE), StrokeKind::Inside);
+    let cy = row.center().y;
+    let mut x = pill.left() + pad;
+    paint_icon(p, Pos2::new(x + 7.0, cy), ic::CHART, 13.0, MUT);
+    x += icon_w + gap;
+    p.galley(Pos2::new(x, cy - lbl_sz.y / 2.0), g_lbl, MUT);
+    x += lbl_sz.x + gap;
+    p.galley(Pos2::new(x, cy - val_sz.y / 2.0), g_val, accent);
+}
+
+fn modal_btn(ui: &mut egui::Ui, label: &str, color: Color32, filled: bool) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
+    let (fill, txt, stroke_col) = if filled {
+        (color, BG, color)
+    } else {
+        (PANEL2, color, LINE)
+    };
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(10),
+        fill,
+        Stroke::new(1.0, stroke_col),
+        StrokeKind::Inside,
+    );
+    let g = ui.painter().layout_no_wrap(
+        label.to_string(),
+        FontId::new(13.0, egui::FontFamily::Name("semibold".into())),
+        txt,
+    );
+    ui.painter()
+        .galley(rect.center() - g.size() / 2.0, g, txt);
+    resp.clicked()
+}
+
 fn option_row(
     ui: &mut egui::Ui,
     icon: char,
@@ -560,6 +691,9 @@ impl eframe::App for CitronApp {
                 Tab::Settings => self.settings_tab(ui),
             });
 
+        self.humanize_modal(&ctx, win);
+        self.sync_engine();
+
         if self.saved.as_ref() != Some(&self.snapshot()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(1100));
         }
@@ -568,6 +702,7 @@ impl eframe::App for CitronApp {
 
 impl CitronApp {
     fn title_bar(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let active = self.engine.signals.mc_focused.load(Ordering::Relaxed);
         egui::Frame::default()
             .inner_margin(Margin {
                 left: 18,
@@ -596,7 +731,7 @@ impl CitronApp {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
                         ui.add_space(6.0);
-                        status_pill(ui);
+                        status_pill(ui, active, self.accent);
                     });
                 });
             });
@@ -649,6 +784,7 @@ impl CitronApp {
     fn clicker_tab(&mut self, ui: &mut egui::Ui, is_left: bool) {
         let accent = self.accent;
         let histo = self.histo.clone();
+        let mut warn = false;
         let ck = if is_left { &mut self.left } else { &mut self.right };
         let title = if is_left { "LEFT CLICKER" } else { "RIGHT CLICKER" };
 
@@ -662,111 +798,93 @@ impl CitronApp {
                 });
             });
             ui.add_space(8.0);
-            ui.columns(2, |c| {
-                c[0].label(cap("MIN CPS", MUT));
-                c[0].label(semibold(&format!("{}", ck.min_cps as i32), 40.0, accent));
-                c[1].with_layout(Layout::top_down(Align::Max), |ui| {
-                    ui.label(cap("MAX CPS", MUT));
-                    ui.label(semibold(&format!("{}", ck.max_cps as i32), 40.0, accent));
+            if ck.humanize {
+                ui.columns(2, |c| {
+                    c[0].label(cap("MIN CPS", MUT));
+                    c[0].label(semibold(&format!("{}", ck.min_cps as i32), 40.0, accent));
+                    c[1].with_layout(Layout::top_down(Align::Max), |ui| {
+                        ui.label(cap("MAX CPS", MUT));
+                        ui.label(semibold(&format!("{}", ck.max_cps as i32), 40.0, accent));
+                    });
                 });
-            });
-            histogram(ui, &histo, accent);
-            ui.add_space(2.0);
-            dual_range(ui, &mut ck.min_cps, &mut ck.max_cps, accent);
-            ui.add_space(8.0);
-            {
-                let (row, _) =
-                    ui.allocate_exact_size(Vec2::new(ui.available_width(), 28.0), Sense::hover());
-                let avg = format!("{:.1}", (ck.min_cps + ck.max_cps) / 2.0);
-                let p = ui.painter();
-                let g_lbl = p.layout_no_wrap("Avg cps".to_string(), FontId::proportional(12.5), MUT);
-                let g_val = p.layout_no_wrap(
-                    avg,
-                    FontId::new(12.5, egui::FontFamily::Name("semibold".into())),
-                    accent,
-                );
-                let (lbl_sz, val_sz) = (g_lbl.size(), g_val.size());
-                let (pad, gap, icon_w) = (12.0, 6.0, 15.0);
-                let content_w = icon_w + gap + lbl_sz.x + gap + val_sz.x;
-                let pill = Rect::from_center_size(row.center(), Vec2::new(content_w + pad * 2.0, 26.0));
-                p.rect(pill, CornerRadius::same(9), PANEL2, Stroke::new(1.0, LINE), StrokeKind::Inside);
-                let cy = row.center().y;
-                let mut x = pill.left() + pad;
-                paint_icon(p, Pos2::new(x + 7.0, cy), ic::CHART, 13.0, MUT);
-                x += icon_w + gap;
-                p.galley(Pos2::new(x, cy - lbl_sz.y / 2.0), g_lbl, MUT);
-                x += lbl_sz.x + gap;
-                p.galley(Pos2::new(x, cy - val_sz.y / 2.0), g_val, accent);
+                histogram(ui, &histo, accent);
+                ui.add_space(2.0);
+                dual_range(ui, &mut ck.min_cps, &mut ck.max_cps, accent);
+                ui.add_space(8.0);
+                avg_pill(ui, (ck.min_cps + ck.max_cps) / 2.0, accent);
+            } else {
+                ui.vertical_centered(|ui| {
+                    ui.label(cap("CPS", MUT));
+                    ui.label(semibold(&format!("{}", ck.cps as i32), 40.0, accent));
+                });
+                histogram(ui, &histo, accent);
+                ui.add_space(2.0);
+                single_slider(ui, &mut ck.cps, 1.0, 20.0, accent);
+                ck.cps = ck.cps.round();
+                ui.add_space(8.0);
+                let _ = ui.allocate_exact_size(Vec2::new(ui.available_width(), 28.0), Sense::hover());
             }
         });
 
         ui.add_space(12.0);
 
         if !is_left {
-            option_row(ui, ic::HAND, "Hold mode", "Hold right button to place / eat", accent, |ui| {
+            option_row(ui, ic::HAND, "Hold mode", "Hold to place / eat (no clicks)", accent, |ui| {
                 toggle(ui, &mut self.right_hold, accent);
             });
             ui.add_space(10.0);
         }
 
-        if is_left {
-            two_col(
-                ui,
-                |ui| {
-                    option_row(ui, ic::PAUSE, "Suspend key", "Hold to pause", accent, |ui| {
-                        chip(ui, ck.suspend.as_str(), accent)
-                    })
-                },
-                |ui| {
-                    option_row(ui, ic::KEYBOARD, "Toggle hotkey", "Click to rebind", accent, |ui| {
-                        chip(ui, ck.hotkey.as_str(), accent)
-                    })
-                },
-            );
-            ui.add_space(10.0);
-            two_col(
-                ui,
-                |ui| {
-                    option_row(ui, ic::EYE_OFF, "Avoid GUI", "Pause in menus", accent, |ui| {
-                        toggle(ui, &mut ck.avoid_gui, accent);
-                    })
-                },
-                |ui| {
-                    option_row(ui, ic::SPARKLES, "Humanize", "Natural timing + bursts", accent, |ui| {
-                        toggle(ui, &mut ck.humanize, accent);
-                    })
-                },
-            );
-            ui.add_space(10.0);
-            two_col(
-                ui,
-                |ui| {
-                    option_row(ui, ic::ACTIVITY, "Jitter", "Aim shake", accent, |ui| {
-                        toggle(ui, &mut ck.jitter, accent);
-                    })
-                },
-                |ui| {
-                    option_row(ui, ic::GAMEPAD, "Only in-game", "Active when focused", accent, |ui| {
-                        toggle(ui, &mut ck.only_ingame, accent);
-                    })
-                },
-            );
-        } else {
-            two_col(
-                ui,
-                |ui| {
-                    option_row(ui, ic::KEYBOARD, "Toggle hotkey", "Click to rebind", accent, |ui| {
-                        chip(ui, ck.hotkey.as_str(), accent)
-                    })
-                },
-                |ui| {
-                    option_row(ui, ic::EYE_OFF, "Avoid GUI", "Pause in menus", accent, |ui| {
-                        toggle(ui, &mut ck.avoid_gui, accent);
-                    })
-                },
-            );
+        two_col(
+            ui,
+            |ui| {
+                option_row(ui, ic::PAUSE, "Suspend key", "Hold to pause", accent, |ui| {
+                    chip(ui, ck.suspend.as_str(), accent)
+                })
+            },
+            |ui| {
+                option_row(ui, ic::KEYBOARD, "Toggle hotkey", "Click to rebind", accent, |ui| {
+                    chip(ui, ck.hotkey.as_str(), accent)
+                })
+            },
+        );
+        ui.add_space(10.0);
+        let before_h = ck.humanize;
+        two_col(
+            ui,
+            |ui| {
+                option_row(ui, ic::EYE_OFF, "Avoid GUI", "Pause in menus", accent, |ui| {
+                    toggle(ui, &mut ck.avoid_gui, accent);
+                })
+            },
+            |ui| {
+                option_row(ui, ic::SPARKLES, "Humanize", "Natural timing + bursts", accent, |ui| {
+                    toggle(ui, &mut ck.humanize, accent);
+                })
+            },
+        );
+        if before_h && !ck.humanize {
+            ck.humanize = true; // keep on until confirmed via the modal
+            warn = true;
         }
+        ui.add_space(10.0);
+        two_col(
+            ui,
+            |ui| {
+                option_row(ui, ic::ACTIVITY, "Jitter", "Aim shake", accent, |ui| {
+                    toggle(ui, &mut ck.jitter, accent);
+                })
+            },
+            |ui| {
+                option_row(ui, ic::GAMEPAD, "Only in-game", "Off = any window", accent, |ui| {
+                    toggle(ui, &mut ck.only_ingame, accent);
+                })
+            },
+        );
 
+        if warn {
+            self.humanize_warn = Some(is_left);
+        }
     }
 
     fn sounds_tab(&mut self, ui: &mut egui::Ui) {
@@ -905,6 +1023,78 @@ impl CitronApp {
         );
     }
 
+    fn humanize_modal(&mut self, ctx: &egui::Context, win: Rect) {
+        let is_left = match self.humanize_warn {
+            Some(v) => v,
+            None => return,
+        };
+        // Scrim: dim + swallow all input (also blocks the drag-from-anywhere handler beneath).
+        egui::Area::new(egui::Id::new("hz_scrim"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(win.left_top())
+            .show(ctx, |ui| {
+                let _ = ui.allocate_response(win.size(), Sense::click_and_drag());
+                ui.painter().rect_filled(
+                    Rect::from_min_size(win.left_top(), win.size()),
+                    CornerRadius::same(16),
+                    Color32::from_rgba_unmultiplied(4, 6, 3, 192),
+                );
+            });
+        let accent = self.accent;
+        let mut keep = false;
+        let mut disable = false;
+        egui::Area::new(egui::Id::new("hz_card"))
+            .order(egui::Order::Foreground)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.set_max_width(400.0);
+                egui::Frame::default()
+                    .fill(PANEL)
+                    .stroke(Stroke::new(1.0, accent))
+                    .corner_radius(CornerRadius::same(14))
+                    .inner_margin(Margin::same(20))
+                    .show(ui, |ui| {
+                        ui.set_width(360.0);
+                        ui.horizontal(|ui| {
+                            ui.label(iconrt(ic::ZAP, 18.0, accent));
+                            ui.add_space(2.0);
+                            ui.label(semibold("Disable humanization?", 16.0, TXT));
+                        });
+                        ui.add_space(10.0);
+                        ui.label(
+                            RichText::new(
+                                "A perfectly periodic clicker is more effective \u{2014} but far \
+                                 easier to detect. Some servers' anti-cheat can flag the regular \
+                                 timing and ban your account. Humanized timing is strongly \
+                                 recommended.",
+                            )
+                            .size(12.5)
+                            .color(MUT),
+                        );
+                        ui.add_space(16.0);
+                        ui.columns(2, |c| {
+                            if modal_btn(&mut c[0], "Keep humanized", accent, true) {
+                                keep = true;
+                            }
+                            if modal_btn(&mut c[1], "Disable anyway", MUT, false) {
+                                disable = true;
+                            }
+                        });
+                    });
+            });
+        if keep {
+            self.humanize_warn = None;
+        }
+        if disable {
+            if is_left {
+                self.left.humanize = false;
+            } else {
+                self.right.humanize = false;
+            }
+            self.humanize_warn = None;
+        }
+        ctx.request_repaint();
+    }
 }
 
 fn accent_button(
@@ -946,7 +1136,12 @@ fn win_btn(ui: &mut egui::Ui, glyph: char) -> egui::Response {
     resp
 }
 
-fn status_pill(ui: &mut egui::Ui) {
+fn status_pill(ui: &mut egui::Ui, active: bool, accent: Color32) {
+    let (label, col) = if active {
+        ("INJECTED", accent)
+    } else {
+        ("WAITING FOR MC", MUT)
+    };
     egui::Frame::default()
         .fill(PANEL2)
         .stroke(Stroke::new(1.0, LINE))
@@ -955,9 +1150,9 @@ fn status_pill(ui: &mut egui::Ui) {
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
-                ui.label(RichText::new("WAITING FOR MC").size(12.0).color(MUT).extra_letter_spacing(1.0));
+                ui.label(RichText::new(label).size(12.0).color(col).extra_letter_spacing(1.0));
                 let (rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-                ui.painter().circle_filled(rect.center(), 4.0, MUT);
+                ui.painter().circle_filled(rect.center(), 4.0, col);
             });
         });
 }
