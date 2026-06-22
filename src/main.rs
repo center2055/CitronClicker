@@ -270,6 +270,7 @@ struct CitronApp {
     custom_wav: Option<std::path::PathBuf>,
     tray_mgr: Option<tray::TrayManager>,
     hidden: bool,
+    quitting: bool,
     tray_applied: Option<bool>,
     autostart_applied: Option<bool>,
 }
@@ -377,6 +378,7 @@ impl CitronApp {
             custom_wav: None,
             tray_mgr,
             hidden: false,
+            quitting: false,
             tray_applied: None,
             autostart_applied: None,
         };
@@ -480,6 +482,23 @@ impl CitronApp {
     }
 
     fn sync_system(&mut self, ctx: &egui::Context) {
+        // Intercept OS-level closes (Alt+F4, taskbar "Close window") while minimize-to-tray is
+        // on: cancel the close and tuck into the tray instead. `quitting` is the escape hatch the
+        // tray's Quit menu sets so a genuine exit isn't swallowed here.
+        if !self.quitting
+            && self.tray
+            && self.tray_mgr.is_some()
+            && ctx.input(|i| i.viewport().close_requested())
+        {
+            if self.engine.signals.panic.load(Ordering::Relaxed) {
+                // Panic key = force-quit; let the close through instead of hiding.
+                self.quitting = true;
+            } else {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                self.hidden = true;
+            }
+        }
         // Auto-start: apply on the first frame and whenever the toggle changes.
         if self.autostart_applied != Some(self.start_system) {
             os::set_autostart(self.start_system);
@@ -506,6 +525,7 @@ impl CitronApp {
                 self.hidden = false;
             }
             Some(tray::TrayAction::Quit) => {
+                self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             None => {}
@@ -957,11 +977,19 @@ impl CitronApp {
                     );
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        // With "Minimize to tray" on, both X and _ tuck the window into the
+                        // tray instead of quitting — the only real exit is the tray's Quit menu.
+                        let to_tray = self.tray && self.tray_mgr.is_some();
                         if win_btn(ui, ic::CLOSE).clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            if to_tray {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                                self.hidden = true;
+                            } else {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
                         }
                         if win_btn(ui, ic::MINUS).clicked() {
-                            if self.tray && self.tray_mgr.is_some() {
+                            if to_tray {
                                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
                                 self.hidden = true;
                             } else {
