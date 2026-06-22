@@ -17,8 +17,8 @@ mod tray;
 use engine::{ClickerSnap, EngineConfig, EngineHandle, ToggleReq};
 
 const BG: Color32 = Color32::from_rgb(10, 13, 8);
-const PANEL: Color32 = Color32::from_rgb(17, 21, 14);
-const PANEL2: Color32 = Color32::from_rgb(24, 29, 18);
+const PANEL: Color32 = Color32::from_rgb(20, 25, 15);
+const PANEL2: Color32 = Color32::from_rgb(30, 36, 22);
 const LINE: Color32 = Color32::from_rgb(38, 45, 29);
 const WIN_BORDER: Color32 = Color32::from_rgb(52, 61, 37);
 const TRACK: Color32 = Color32::from_rgb(42, 47, 36);
@@ -187,7 +187,7 @@ fn setup_style(ctx: &egui::Context) {
     v.window_fill = BG;
     v.extreme_bg_color = PANEL2;
     v.selection.bg_fill = Color32::from_rgb(70, 84, 30);
-    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, LINE);
+    v.widgets.noninteractive.bg_stroke = Stroke::NONE;
     style.visuals = v;
     style.spacing.item_spacing = Vec2::new(10.0, 10.0);
     ctx.set_global_style(style);
@@ -596,7 +596,6 @@ fn cap(text: &str, color: Color32) -> RichText {
 fn card() -> egui::Frame {
     egui::Frame::default()
         .fill(PANEL)
-        .stroke(Stroke::new(1.0, LINE))
         .corner_radius(CornerRadius::same(14))
         .inner_margin(Margin::same(16))
 }
@@ -604,7 +603,6 @@ fn card() -> egui::Frame {
 fn row_frame() -> egui::Frame {
     egui::Frame::default()
         .fill(PANEL)
-        .stroke(Stroke::new(1.0, LINE))
         .corner_radius(CornerRadius::same(12))
         .inner_margin(Margin::symmetric(13, 11))
 }
@@ -727,7 +725,7 @@ fn avg_pill(ui: &mut egui::Ui, avg_value: f32, accent: Color32) {
     let (pad, gap, icon_w) = (12.0, 6.0, 15.0);
     let content_w = icon_w + gap + lbl_sz.x + gap + val_sz.x;
     let pill = Rect::from_center_size(row.center(), Vec2::new(content_w + pad * 2.0, 26.0));
-    p.rect(pill, CornerRadius::same(9), PANEL2, Stroke::new(1.0, LINE), StrokeKind::Inside);
+    p.rect_filled(pill, CornerRadius::same(9), PANEL2);
     let cy = row.center().y;
     let mut x = pill.left() + pad;
     paint_icon(p, Pos2::new(x + 7.0, cy), ic::CHART, 13.0, MUT);
@@ -739,18 +737,8 @@ fn avg_pill(ui: &mut egui::Ui, avg_value: f32, accent: Color32) {
 
 fn modal_btn(ui: &mut egui::Ui, label: &str, color: Color32, filled: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::click());
-    let (fill, txt, stroke_col) = if filled {
-        (color, BG, color)
-    } else {
-        (PANEL2, color, LINE)
-    };
-    ui.painter().rect(
-        rect,
-        CornerRadius::same(10),
-        fill,
-        Stroke::new(1.0, stroke_col),
-        StrokeKind::Inside,
-    );
+    let (fill, txt) = if filled { (color, BG) } else { (PANEL2, color) };
+    ui.painter().rect_filled(rect, CornerRadius::same(10), fill);
     let g = ui.painter().layout_no_wrap(
         label.to_string(),
         FontId::new(13.0, egui::FontFamily::Name("semibold".into())),
@@ -793,20 +781,16 @@ fn bind_chip(ui: &mut egui::Ui, label: &str, listening: bool, accent: Color32) -
     let galley = ui.painter().layout_no_wrap(txt.to_string(), font.clone(), accent);
     let size = galley.size() + Vec2::new(24.0, 12.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    let (fill, stroke_col, txt_col) = if listening {
-        (accent, accent, BG)
+    // Resting state is borderless; hover/listening get an accent ring as feedback.
+    let (fill, stroke, txt_col) = if listening {
+        (accent, Stroke::new(1.0, accent), BG)
     } else if resp.hovered() {
-        (PANEL2, accent, accent)
+        (PANEL2, Stroke::new(1.0, accent), accent)
     } else {
-        (PANEL2, LINE, accent)
+        (PANEL2, Stroke::NONE, accent)
     };
-    ui.painter().rect(
-        rect,
-        CornerRadius::same(8),
-        fill,
-        Stroke::new(1.0, stroke_col),
-        StrokeKind::Inside,
-    );
+    ui.painter()
+        .rect(rect, CornerRadius::same(8), fill, stroke, StrokeKind::Inside);
     let g = ui.painter().layout_no_wrap(txt.to_string(), font, txt_col);
     ui.painter().galley(rect.center() - g.size() / 2.0, g, txt_col);
     resp.clicked()
@@ -1212,7 +1196,7 @@ impl CitronApp {
                     let col = if sel { accent } else { MUT };
                     let r = egui::Frame::default()
                         .fill(if sel { PANEL2 } else { PANEL })
-                        .stroke(Stroke::new(1.0, if sel { accent } else { LINE }))
+                        .stroke(if sel { Stroke::new(1.0, accent) } else { Stroke::NONE })
                         .corner_radius(CornerRadius::same(10))
                         .inner_margin(Margin::symmetric(14, 10))
                         .show(ui, |ui| {
@@ -1442,13 +1426,7 @@ fn accent_button(
     fill: Color32,
 ) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 44.0), Sense::click());
-    ui.painter().rect(
-        rect,
-        CornerRadius::same(12),
-        fill,
-        Stroke::new(1.0, LINE),
-        StrokeKind::Inside,
-    );
+    ui.painter().rect_filled(rect, CornerRadius::same(12), fill);
     let galley = ui.painter().layout_no_wrap(
         label.to_string(),
         FontId::new(13.5, egui::FontFamily::Name("semibold".into())),
@@ -1481,7 +1459,6 @@ fn status_pill(ui: &mut egui::Ui, active: bool, accent: Color32) {
     };
     egui::Frame::default()
         .fill(PANEL2)
-        .stroke(Stroke::new(1.0, LINE))
         .corner_radius(CornerRadius::same(9))
         .inner_margin(Margin::symmetric(12, 6))
         .show(ui, |ui| {
