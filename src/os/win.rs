@@ -192,7 +192,8 @@ pub fn any_window_focused() -> bool {
 }
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const RUN_NAME: &str = "Citron Clicker Premium";
+const RUN_NAME: &str = "Citron v2";
+const RUN_NAME_LEGACY: &str = "Citron Clicker Premium"; // pre-rename entry, cleaned up below
 
 /// Add/remove a per-user Run registry entry so the app launches at login.
 pub fn set_autostart(enabled: bool) {
@@ -202,6 +203,8 @@ pub fn set_autostart(enabled: bool) {
         Ok((k, _)) => k,
         Err(_) => return,
     };
+    // Always drop the old-named entry so a pre-rename autostart can't point at a deleted exe.
+    let _ = run.delete_value(RUN_NAME_LEGACY);
     if enabled {
         if let Ok(exe) = std::env::current_exe() {
             let _ = run.set_value(RUN_NAME, &format!("\"{}\"", exe.display()));

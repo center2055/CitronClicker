@@ -73,7 +73,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "Citron Clicker Premium",
+        "Citron v2",
         options,
         Box::new(|cc| {
             setup_fonts(&cc.egui_ctx);
