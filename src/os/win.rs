@@ -183,6 +183,26 @@ pub fn any_window_focused() -> bool {
     unsafe { !GetForegroundWindow().is_null() }
 }
 
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+const RUN_NAME: &str = "Citron Clicker Premium";
+
+/// Add/remove a per-user Run registry entry so the app launches at login.
+pub fn set_autostart(enabled: bool) {
+    use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
+    let run = match RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_KEY) {
+        Ok((k, _)) => k,
+        Err(_) => return,
+    };
+    if enabled {
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = run.set_value(RUN_NAME, &format!("\"{}\"", exe.display()));
+        }
+    } else {
+        let _ = run.delete_value(RUN_NAME);
+    }
+}
+
 /// True when our own window is in the foreground — used to never click into our own UI.
 pub fn foreground_is_self() -> bool {
     unsafe {

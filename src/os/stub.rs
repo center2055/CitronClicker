@@ -27,6 +27,7 @@ pub fn is_minecraft_running() -> bool {
 pub fn any_window_focused() -> bool {
     false
 }
+pub fn set_autostart(_enabled: bool) {}
 pub fn foreground_is_self() -> bool {
     false
 }

@@ -11,6 +11,7 @@ rodio = { version = "0.22.2", default-features = false, features = ["playback", 
 serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
+tray-icon = "0.24.1"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
@@ -20,3 +21,4 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_ProcessStatus",
     "Win32_Media",
 ] }
+winreg = "0.56.0"

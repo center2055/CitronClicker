@@ -12,6 +12,7 @@ use std::sync::atomic::Ordering;
 mod audio;
 mod engine;
 mod os;
+mod tray;
 
 use engine::{ClickerSnap, EngineConfig, EngineHandle, ToggleReq};
 
@@ -267,6 +268,10 @@ struct CitronApp {
     audio: Option<audio::AudioHandle>,
     last_pack: Pack,
     custom_wav: Option<std::path::PathBuf>,
+    tray_mgr: Option<tray::TrayManager>,
+    hidden: bool,
+    tray_applied: Option<bool>,
+    autostart_applied: Option<bool>,
 }
 
 fn snap_of(ck: &Clicker, is_left: bool) -> ClickerSnap {
@@ -340,6 +345,8 @@ impl CitronApp {
             },
             audio.clone(),
         );
+        let ti = load_icon();
+        let tray_mgr = tray::TrayManager::new(ti.rgba, ti.width, ti.height);
         let mut app = Self {
             tab: Tab::Left,
             left,
@@ -368,6 +375,10 @@ impl CitronApp {
             audio,
             last_pack: Pack::Default,
             custom_wav: None,
+            tray_mgr,
+            hidden: false,
+            tray_applied: None,
+            autostart_applied: None,
         };
         if let Some(storage) = cc.storage {
             if let Some(cfg) = eframe::get_value::<Config>(storage, "config") {
@@ -465,6 +476,43 @@ impl CitronApp {
             self.logo = tex;
             self.logo_aspect = aspect;
             self.logo_ppp = ppp;
+        }
+    }
+
+    fn sync_system(&mut self, ctx: &egui::Context) {
+        // Auto-start: apply on the first frame and whenever the toggle changes.
+        if self.autostart_applied != Some(self.start_system) {
+            os::set_autostart(self.start_system);
+            self.autostart_applied = Some(self.start_system);
+        }
+        // Tray icon visibility follows the toggle.
+        if self.tray_applied != Some(self.tray) {
+            if let Some(t) = &self.tray_mgr {
+                t.set_visible(self.tray);
+            }
+            if !self.tray && self.hidden {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                self.hidden = false;
+            }
+            self.tray_applied = Some(self.tray);
+        }
+        // Handle tray interactions (poll returns an owned action, so no borrow is held).
+        let action = self.tray_mgr.as_ref().and_then(|t| t.poll());
+        match action {
+            Some(tray::TrayAction::Show) => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                self.hidden = false;
+            }
+            Some(tray::TrayAction::Quit) => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            None => {}
+        }
+        // While hidden in the tray, keep ticking so we can still poll tray events to restore.
+        if self.hidden {
+            ctx.request_repaint_after(std::time::Duration::from_millis(150));
         }
     }
 }
@@ -877,6 +925,8 @@ impl eframe::App for CitronApp {
             .capturing
             .store(self.rebind.is_some(), Ordering::Relaxed);
 
+        self.sync_system(&ctx);
+
         if self.saved.as_ref() != Some(&self.snapshot()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(1100));
         }
@@ -911,7 +961,12 @@ impl CitronApp {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                         if win_btn(ui, ic::MINUS).clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                            if self.tray && self.tray_mgr.is_some() {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                                self.hidden = true;
+                            } else {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                            }
                         }
                         ui.add_space(6.0);
                         status_pill(ui, active, self.accent);
