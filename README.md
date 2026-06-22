@@ -1,6 +1,6 @@
-# Citron Clicker Premium
+# Citron Clicker V2
 
-The premium successor to [Citron Clicker](https://github.com/center2055/CitronClicker) — rebuilt from the ground up in **Rust + [egui](https://github.com/emilk/egui)** instead of .NET.
+The premium successor to Citron Clicker V1; rebuilt from the ground up in **Rust + [egui](https://github.com/emilk/egui)** instead of .NET.
 
 ## Why the rewrite
 
@@ -8,9 +8,6 @@ The premium successor to [Citron Clicker](https://github.com/center2055/CitronCl
 - **Cross-platform.** The UI and config layer are portable across Windows, macOS and Linux. The clicker *engine* is OS-specific (Windows first; macOS needs Accessibility permission; Linux works on X11, Wayland blocks synthetic input).
 - **Native feel, no webview.** egui repaints only on interaction, so the GUI won't steal frames from the game.
 
-## Status
-
-Work in progress — the **interface is built**: branded title bar, tabbed layout, dual-handle CPS range sliders, click-distribution histogram, custom toggles, sound + settings panels, and a themeable accent colour. Configuration **auto-saves** to disk on every change (no save button). Still to come: the clicker engine, sound playback, and key rebinding.
 
 ## Building
 
@@ -20,15 +17,6 @@ Requires a recent Rust toolchain.
 cargo run            # debug
 cargo build --release
 ```
-
-## Planned features
-
-- Independent left / right clickers with min–max CPS ranges
-- Humanized timing (natural variance + click bursts)
-- **Custom click sounds** — built-in packs + load your own `.wav`, volume + pitch variance
-- Jitter, Avoid-GUI, suspend key, toggle hotkeys, panic key
-- Only-while-in-game gating
-- Themeable accent colour, config import/export
 
 ## Layout
 
@@ -42,7 +30,3 @@ cargo build --release
 - Font: [Poppins](https://fonts.google.com/specimen/Poppins) (SIL Open Font License)
 - Icons: [Lucide](https://lucide.dev) (ISC License)
 - Default click sound: [Arsenic Client](https://github.com/ArsenicClient/Arsenic) (MIT License)
-
----
-
-made by center2055
