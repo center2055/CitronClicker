@@ -11,7 +11,7 @@ pub struct TrayManager {
 impl TrayManager {
     pub fn new(rgba: Vec<u8>, w: u32, h: u32) -> Option<TrayManager> {
         let menu = Menu::new();
-        let show = MenuItem::new("Show Citron", true, None);
+        let show = MenuItem::new("Show Citron v2", true, None);
         let quit = MenuItem::new("Quit", true, None);
         let show_id = show.id().clone();
         let quit_id = quit.id().clone();
@@ -19,7 +19,7 @@ impl TrayManager {
         menu.append(&quit).ok()?;
         let icon = Icon::from_rgba(rgba, w, h).ok()?;
         let tray = TrayIconBuilder::new()
-            .with_tooltip("Citron Clicker Premium")
+            .with_tooltip("Citron v2")
             .with_icon(icon)
             .with_menu(Box::new(menu))
             .with_menu_on_left_click(false) // left-click restores; right-click opens the menu

@@ -1,13 +1,12 @@
-# Citron Clicker V2
+# Citron v2
 
-The premium successor to Citron Clicker V1; rebuilt from the ground up in **Rust + [egui](https://github.com/emilk/egui)** instead of .NET.
+Version 2 of [Citron Clicker](https://github.com/center2055/CitronClicker) — rebuilt from the ground up in **Rust + [egui](https://github.com/emilk/egui)** instead of .NET.
 
 ## Why the rewrite
 
 - **Lightweight.** One small native binary, no .NET runtime, no bundled browser. (The old self-contained .NET build was ~130 MB.)
 - **Cross-platform.** The UI and config layer are portable across Windows, macOS and Linux. The clicker *engine* is OS-specific (Windows first; macOS needs Accessibility permission; Linux works on X11, Wayland blocks synthetic input).
 - **Native feel, no webview.** egui repaints only on interaction, so the GUI won't steal frames from the game.
-
 
 ## Building
 
