@@ -1,6 +1,6 @@
-//! Click-sound playback. A dedicated thread owns the rodio output (which is `!Send` and stops
-//! audio when dropped); everyone else holds a cloneable `AudioHandle` that sends play requests
-//! over a channel. Fire-and-forget — the mixer sums voices, so rapid clicks overlap cleanly.
+//! click sounds. a dedicated thread owns the rodio output (it's !Send and stops audio on drop);
+//! everyone else holds a cloneable AudioHandle that sends play requests over a channel.
+//! fire-and-forget — the mixer sums voices so rapid clicks overlap fine.
 
 use rodio::{Decoder, DeviceSinkBuilder, Source};
 use std::io::Cursor;
@@ -29,7 +29,7 @@ pub struct AudioHandle {
 }
 
 impl AudioHandle {
-    /// Spawn the audio thread. Returns `None` if no output device is available.
+    /// spawn the audio thread. none if there's no output device.
     pub fn spawn() -> Option<AudioHandle> {
         let (tx, rx) = channel::<AudioMsg>();
         let (ready_tx, ready_rx) = channel::<bool>();
@@ -62,7 +62,7 @@ fn default_bytes() -> Arc<[u8]> {
 }
 
 fn audio_thread(rx: Receiver<AudioMsg>, ready_tx: Sender<bool>) {
-    // MixerDeviceSink owns the cpal stream — it is !Send and must live here for the whole loop.
+    // owns the cpal stream — !Send, must live here for the whole loop
     let handle = match DeviceSinkBuilder::open_default_sink() {
         Ok(mut h) => {
             h.log_on_drop(false);
@@ -84,7 +84,7 @@ fn audio_thread(rx: Receiver<AudioMsg>, ready_tx: Sender<bool>) {
             AudioMsg::Play(p) => play_once(&mixer, &bytes, p),
         }
     }
-    // `handle` drops here when all senders are gone → stream stops cleanly.
+    // handle drops here once all senders are gone → stream stops
 }
 
 fn play_once(mixer: &rodio::mixer::Mixer, bytes: &Arc<[u8]>, p: PlayParams) {
@@ -96,7 +96,7 @@ fn play_once(mixer: &rodio::mixer::Mixer, bytes: &Arc<[u8]>, p: PlayParams) {
     mixer.add(src.speed(p.speed.max(0.1)).amplify(p.volume.clamp(0.0, 1.0)));
 }
 
-/// Decodable-WAV check used before accepting a custom file (off the hot path).
+/// decode check before accepting a custom wav (off the hot path)
 pub fn validate_wav(bytes: &[u8]) -> Result<(), ()> {
     Decoder::try_from(Cursor::new(bytes.to_vec()))
         .map(|_| ())

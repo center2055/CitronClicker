@@ -22,7 +22,7 @@ impl TrayManager {
             .with_tooltip("Citron v2")
             .with_icon(icon)
             .with_menu(Box::new(menu))
-            .with_menu_on_left_click(false) // left-click restores; right-click opens the menu
+            .with_menu_on_left_click(false) // left-click restores, right-click opens the menu
             .with_menu_on_right_click(true)
             .build()
             .ok()?;
@@ -38,7 +38,7 @@ impl TrayManager {
         let _ = self._tray.set_visible(visible);
     }
 
-    /// Drain pending tray/menu events; returns an action to perform, if any.
+    /// drain pending tray/menu events, return an action if any
     pub fn poll(&self) -> Option<TrayAction> {
         if let Ok(ev) = MenuEvent::receiver().try_recv() {
             if ev.id == self.quit_id {

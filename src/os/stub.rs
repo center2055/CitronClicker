@@ -1,5 +1,5 @@
-//! Non-Windows no-op surface. `physical_button_held` returns false so the engine
-//! never injects — the app degrades to UI-only.
+//! non-windows no-op surface. physical_button_held is always false so the engine never injects —
+//! the app degrades to ui-only.
 
 pub fn begin_timer_period() {}
 pub fn small_icon_px() -> u32 {

@@ -1,6 +1,6 @@
-//! System tray icon. Real implementation on Windows (tray-icon crate); a no-op stub elsewhere
-//! so the app builds everywhere. The tray icon lives on the main (event-loop) thread; its
-//! events are polled each frame from the UI via `poll()`.
+//! system tray icon. real on windows (tray-icon crate), no-op stub elsewhere so it builds
+//! everywhere. the icon lives on the main (event-loop) thread; events get polled each frame via
+//! poll().
 
 #[cfg(windows)]
 mod win;
