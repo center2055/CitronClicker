@@ -65,8 +65,9 @@ impl Rng {
 /// Humanized click timing (evolved from `HumanizedDelayGenerator.GetDelays`). Returns
 /// `(up_ms, down_ms)`. CPS is sampled with density proportional to the rate so the realized
 /// wall-clock average equals the [min,max] midpoint (see `get_delays`), then perturbed by a
-/// Box–Muller gaussian and a slow sine drift, nudged by rare ms-scale jitters, and finally clamped
-/// so the period stays within the [min,max] bounds.
+/// Box–Muller gaussian and a slow sine drift. The core period is clamped into the [min,max] bounds
+/// to hold that average, then a small fraction of clicks get a hesitation/flick that drifts just
+/// past the bounds, giving the distribution natural soft tails instead of hard walls.
 pub struct HumanizedDelay {
     drift: f64,
 }
@@ -113,20 +114,27 @@ impl HumanizedDelay {
         let jitter = (1.0 + std_normal * 0.05).clamp(0.93, 1.07);
         let mut period = target_period * drift_factor * jitter;
 
-        let r = rng.unit();
-        if r < 0.008 {
-            period += rng.range(2, 10) as f64;
-        } else if r < 0.02 {
-            period -= rng.range(1, 5) as f64;
-        }
-        period = period.max(5.0);
-
-        // Keep the resulting rate within the user's [min_cps, max_cps] bounds. (The old 50ms
-        // tick-magnetization was removed — it snapped periods toward the 50/60ms buckets, which
-        // skewed the average away from the midpoint and could overshoot max.)
+        // Clamp the *core* period into the user's [min,max] so the bulk of clicks stay in range and
+        // the long-run average tracks the midpoint. (The old 50ms tick-magnetization was removed —
+        // it snapped periods toward the 50/60ms buckets, which skewed the average and could overshoot
+        // max.)
         let min_period = 1000.0 / eff_max; // fastest allowed
         let max_period = 1000.0 / eff_min; // slowest allowed
         period = period.clamp(min_period, max_period);
+
+        // Natural tails, applied AFTER the clamp so they actually survive (clamping first would
+        // truncate them into a hard wall with no tail — a faintly bot-like signature). A small
+        // fraction of clicks drift slightly past the bounds: a brief hesitation (slow) or a quick
+        // flick (fast), like a real hand. Rare and small, so the midpoint average barely moves.
+        let r = rng.unit();
+        if r < 0.006 {
+            period += rng.range(8, 30) as f64; // brief hesitation — slow tail past max-period
+        } else if r < 0.018 {
+            period += rng.range(2, 8) as f64; // soft slow drift
+        } else if r < 0.030 {
+            period -= rng.range(2, 8) as f64; // quick flick — fast tail past min-period
+        }
+        period = period.max(5.0);
 
         let p = period.round() as i32;
         let down_cap = 26.min(3.max(p - 2));
@@ -215,5 +223,34 @@ mod tests {
                 err * 100.0
             );
         }
+    }
+
+    #[test]
+    fn distribution_has_tails_but_stays_mostly_in_range() {
+        // The clamp holds the bulk inside [min,max]; the post-clamp hesitation/flick should let a
+        // small fraction spill just past the bounds so the distribution has soft tails (not a hard
+        // wall), while the vast majority stay in range.
+        let (min, max) = (12.0f32, 18.0f32);
+        let min_p = 1000.0 / max as f64; // fastest allowed period
+        let max_p = 1000.0 / min as f64; // slowest allowed period
+        let mut rng = Rng::seeded(0x7A11_5);
+        let mut hd = HumanizedDelay::new();
+        let n = 200_000u32;
+        let (mut slow_tail, mut fast_tail) = (0u32, 0u32);
+        for _ in 0..n {
+            let (up, down) = hd.get_delays(min, max, &mut rng);
+            let p = up + down;
+            if p > max_p + 0.5 {
+                slow_tail += 1;
+            } else if p < min_p - 0.5 {
+                fast_tail += 1;
+            }
+        }
+        let out = slow_tail + fast_tail;
+        let frac = out as f64 / n as f64;
+        // Tails exist in both directions...
+        assert!(slow_tail > 0 && fast_tail > 0, "expected tails both ways: slow={slow_tail} fast={fast_tail}");
+        // ...but stay a small minority (the bulk is in range).
+        assert!(frac > 0.005 && frac < 0.06, "out-of-range fraction {:.3} should be a small minority", frac);
     }
 }
