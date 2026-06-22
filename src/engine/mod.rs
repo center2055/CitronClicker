@@ -1,5 +1,5 @@
-//! Autoclicker engine: background threads driving synthetic clicks while the user physically
-//! holds the button. The UI thread owns the config and pushes a snapshot here each frame.
+//! autoclicker engine: background threads that click while the user physically holds the button.
+//! the ui thread owns the config and pushes a snapshot here each frame.
 
 pub mod timing;
 
@@ -12,8 +12,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use timing::{HumanizedDelay, Rng, SmoothJitter, fixed_delays};
 
-/// Hot, lock-free flags shared with the threads. Relaxed ordering: these are advisory gates,
-/// not synchronization of other memory.
+/// hot lock-free flags shared with the threads. relaxed ordering — advisory gates, not syncing
+/// other memory.
 pub struct EngineSignals {
     pub suspend_left: AtomicBool,
     pub suspend_right: AtomicBool,
@@ -22,12 +22,12 @@ pub struct EngineSignals {
     pub mc_running: AtomicBool,
     pub any_focused: AtomicBool,
     pub running: AtomicBool,
-    /// Set by the UI while a key-rebind is armed: fully pauses the engine so the key/button
-    /// being bound does not also toggle or click.
+    /// set while a rebind is armed — fully pauses the engine so the key being bound doesn't also
+    /// toggle or click
     pub capturing: AtomicBool,
 }
 
-/// Per-clicker config the engine reads. Built from the UI's `Clicker` each frame.
+/// per-clicker config the engine reads, built from the ui's Clicker each frame
 #[derive(Clone, PartialEq)]
 pub struct ClickerSnap {
     pub enabled: bool,
@@ -126,7 +126,7 @@ impl EngineHandle {
     }
 }
 
-/// Map a UI key-name string to a Windows virtual-key code (0 = none). Platform-independent.
+/// map a ui key-name to a windows vk code (0 = none)
 pub fn vk_from_name(name: &str) -> i32 {
     let n = name.trim();
     match n.to_ascii_lowercase().as_str() {
@@ -160,8 +160,8 @@ pub fn vk_from_name(name: &str) -> i32 {
     }
 }
 
-/// Time-accumulation scheduler: keeps the long-run click rate accurate by compensating each
-/// cycle for dispatch jitter (ported from the old ClickerLoop). Returns `(comp_up, comp_down)`.
+/// time-accumulation scheduler: keeps the long-run rate accurate by compensating each cycle for
+/// dispatch jitter. returns (comp_up, comp_down).
 struct ClickScheduler {
     start: Instant,
     next_expected: f64,
@@ -194,7 +194,7 @@ impl ClickScheduler {
     }
 }
 
-/// Accurate wait that aborts early if the engine stops or the physical button is released.
+/// accurate wait that bails early if the engine stops or the button is released
 fn precise_delay(ms: f64, sig: &EngineSignals, is_left: bool) {
     if ms <= 0.0 {
         return;
@@ -248,14 +248,14 @@ fn clicker_loop(
         } else {
             sig.any_focused.load(Ordering::Relaxed)
         };
-        // Avoid GUI's cursor check only makes sense in-game (cursor is hidden during play, shown
-        // in menus). In "any window" mode the cursor is always visible, so don't let it block.
+        // avoid-gui's cursor check only makes sense in-game (cursor hidden in play, shown in
+        // menus). in "any window" mode the cursor is always visible so don't let it block.
         let gui_block = snap.avoid_gui && snap.only_ingame && os::cursor_visible();
         let phys = os::physical_button_held(is_left);
         let should = snap.enabled
             && !sig.panic.load(Ordering::Relaxed)
             && !sig.capturing.load(Ordering::Relaxed)
-            && !os::foreground_is_self() // never click into our own window, regardless of settings
+            && !os::foreground_is_self() // never click into our own window
             && focus_ok
             && !gui_block
             && !suspend
@@ -285,7 +285,7 @@ fn clicker_loop(
             }
             precise_delay(comp_up, &sig, is_left);
             if !os::physical_button_held(is_left) {
-                continue; // released mid-cycle; else-branch next loop emits the trailing UP
+                continue; // released mid-cycle; next loop's else emits the trailing up
             }
             os::click_down(is_left);
             play_click(&audio, audio_cfg);
@@ -300,7 +300,7 @@ fn clicker_loop(
     }
 
     if was_clicking {
-        os::click_up(is_left); // never leave a button stuck down on shutdown
+        os::click_up(is_left); // don't leave a button stuck down on shutdown
     }
 }
 
@@ -329,7 +329,7 @@ fn key_poll_loop(
     tx: Sender<ToggleReq>,
     ctx: egui::Context,
 ) {
-    let mut left_was = true; // require a release before the first edge counts
+    let mut left_was = true; // need a release before the first edge counts
     let mut right_was = true;
     let mut panic_was = true;
     let mut last_focus = Instant::now()
@@ -337,8 +337,8 @@ fn key_poll_loop(
         .unwrap_or_else(Instant::now);
 
     while sig.running.load(Ordering::Relaxed) {
-        // While a rebind is armed, don't toggle/suspend on the key being bound. Holding the
-        // *_was flags true means the just-bound (still-held) key requires a release before it fires.
+        // while a rebind is armed, don't toggle/suspend on the bound key. holding *_was true means
+        // the still-held key needs a release before it fires.
         if sig.capturing.load(Ordering::Relaxed) {
             left_was = true;
             right_was = true;
@@ -371,8 +371,8 @@ fn key_poll_loop(
         if snap.panic_vk != 0 {
             let p = os::key_held(snap.panic_vk);
             if p && !panic_was {
-                sig.panic.store(true, Ordering::Relaxed); // stop clicking instantly
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close); // panic = quit the app
+                sig.panic.store(true, Ordering::Relaxed); // stop clicking now
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close); // panic = quit
                 ctx.request_repaint();
             }
             panic_was = p;

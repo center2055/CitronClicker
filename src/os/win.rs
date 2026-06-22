@@ -1,6 +1,6 @@
-//! Windows input layer: synthetic clicks via SendInput, physical-hold detection via a
-//! WH_MOUSE_LL hook on a dedicated message-pump thread (filtering LLMHF_INJECTED so our own
-//! synthetic clicks never count), foreground / Minecraft detection, cursor + key state.
+//! windows input: synthetic clicks via sendinput, physical-hold detection via a wh_mouse_ll hook
+//! on its own pump thread (filters injected events so our clicks don't count), mc/foreground
+//! detection, cursor + key state.
 
 use std::ptr;
 use std::sync::Mutex;
@@ -33,24 +33,21 @@ static HOOK_INSTALLED: AtomicBool = AtomicBool::new(false);
 static SEND_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn begin_timer_period() {
-    // 1ms timer resolution so thread::sleep(1) is accurate enough that precise_delay only
-    // has to spin the last ~2ms of each click cycle.
+    // 1ms timer res so sleep(1) is tight enough to only spin the last ~2ms of a cycle
     unsafe {
         timeBeginPeriod(1);
     }
 }
 
-/// The notification-area icon size for the current DPI (16px @ 100%, 24px @ 150%, …). The process
-/// is per-monitor DPI-aware, so this is the physical pixel size the shell draws the tray icon at —
-/// pre-rendering the icon to exactly this size lets it draw 1:1 instead of being shell-scaled.
+/// tray icon size for the current dpi (16px @ 100%, 24 @ 150%). render at exactly this so the
+/// shell draws it 1:1 instead of rescaling.
 pub fn small_icon_px() -> u32 {
     let s = unsafe { GetSystemMetrics(SM_CXSMICON) };
     if s <= 0 { 16 } else { s as u32 }
 }
 
-/// The low-level mouse hook proc. Runs on the hook thread while it pumps messages. Must never
-/// block, allocate, or panic. Only PHYSICAL (non-injected) events update the shared flags, so
-/// our own synthetic clicks cannot create a feedback loop.
+/// low-level mouse hook. runs on the pump thread — must never block/alloc/panic. only physical
+/// (non-injected) events touch the flags so our own clicks don't feed back.
 unsafe extern "system" fn ll_mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 && lparam != 0 {
         let info = unsafe { &*(lparam as *const MSLLHOOKSTRUCT) };
@@ -67,7 +64,7 @@ unsafe extern "system" fn ll_mouse_proc(code: i32, wparam: WPARAM, lparam: LPARA
     unsafe { CallNextHookEx(ptr::null_mut(), code, wparam, lparam) }
 }
 
-/// Spawn the hook thread (installs WH_MOUSE_LL and pumps). Returns its thread id for shutdown.
+/// spawn the hook thread (installs wh_mouse_ll + pumps). returns its tid for shutdown.
 pub fn start_input_hook() -> u32 {
     let (tx, rx) = mpsc::channel::<u32>();
     thread::spawn(move || unsafe {
@@ -85,7 +82,7 @@ pub fn start_input_hook() -> u32 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
-        // Unhook on the SAME thread that installed it (required by Win32).
+        // must unhook on the same thread that installed it
         UnhookWindowsHookEx(hook);
         HOOK_INSTALLED.store(false, Ordering::Relaxed);
     });
@@ -108,7 +105,7 @@ pub fn physical_button_held(is_left: bool) -> bool {
             PHYS_RMB.load(Ordering::Relaxed)
         }
     } else {
-        // Fallback before the hook installs (or on failure): no synthetic stream yet to confuse us.
+        // before the hook is up (or on failure) — nothing injecting yet to confuse us
         let vk = if is_left { 0x01 } else { 0x02 };
         unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
     }
@@ -128,8 +125,8 @@ fn send_mouse(flags: u32, dx: i32, dy: i32) {
             },
         },
     };
-    // Serialize every SendInput (both clickers + jitter) — interleaved injection destabilizes
-    // UWP/Bedrock. Held only around the single call, never across a delay.
+    // serialize every sendinput (both clickers + jitter) — interleaved injection breaks
+    // uwp/bedrock. held only around the call, never across a delay.
     let _g = SEND_LOCK.lock().unwrap();
     unsafe {
         SendInput(1, &input, std::mem::size_of::<INPUT>() as i32);
@@ -180,7 +177,7 @@ pub fn key_held(vk: i32) -> bool {
     if vk == 0 {
         return false;
     }
-    // Mouse-button bindings must use the physical flags (GetAsyncKeyState would see our clicks).
+    // mouse-button binds use the physical flags (getasynckeystate would see our own clicks)
     if (vk == 0x01 || vk == 0x02) && HOOK_INSTALLED.load(Ordering::Relaxed) {
         return physical_button_held(vk == 0x01);
     }
@@ -195,7 +192,7 @@ const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const RUN_NAME: &str = "Citron v2";
 const RUN_NAME_LEGACY: &str = "Citron Clicker Premium"; // pre-rename entry, cleaned up below
 
-/// Add/remove a per-user Run registry entry so the app launches at login.
+/// add/remove the per-user run key entry so it launches at login
 pub fn set_autostart(enabled: bool) {
     use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
@@ -203,7 +200,7 @@ pub fn set_autostart(enabled: bool) {
         Ok((k, _)) => k,
         Err(_) => return,
     };
-    // Always drop the old-named entry so a pre-rename autostart can't point at a deleted exe.
+    // drop the old-named entry so a pre-rename autostart can't point at a dead exe
     let _ = run.delete_value(RUN_NAME_LEGACY);
     if enabled {
         if let Ok(exe) = std::env::current_exe() {
@@ -214,7 +211,7 @@ pub fn set_autostart(enabled: bool) {
     }
 }
 
-/// True when our own window is in the foreground — used to never click into our own UI.
+/// true when our own window is focused — so we never click into our own ui
 pub fn foreground_is_self() -> bool {
     unsafe {
         let hwnd = GetForegroundWindow();
@@ -256,9 +253,9 @@ fn foreground_process_name(hwnd: HWND) -> String {
         if handle.is_null() {
             return String::new();
         }
-        // QueryFullProcessImageNameW, not K32GetModuleBaseNameW: the latter returns ACCESS_DENIED
-        // for sandboxed app-container processes like Minecraft Bedrock (Minecraft.Windows.exe),
-        // which would silently break detection. This returns a full path; take the file name.
+        // queryfullprocessimagenamew, not k32getmodulebasenamew: the latter gives access_denied
+        // for sandboxed app-container procs like bedrock (minecraft.windows.exe) and silently
+        // breaks detection. this gives a full path; grab the file name.
         let mut buf = [0u16; 512];
         let mut len = buf.len() as u32;
         let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len);
@@ -320,9 +317,8 @@ fn has_render_class(cls: &str) -> bool {
     cls.contains("glfw") || cls.contains("lwjgl")
 }
 
-/// True when the given window is the actual Minecraft game (launcher-safe; ports the detection
-/// from the old source incl. the CM Client fix and custom-runtime clients). The GLFW/LWJGL
-/// render class is the strongest signal and is checked before any process query.
+/// true if this window is the actual mc game (not a launcher). handles custom clients (cm client
+/// etc.) — the glfw/lwjgl render class is the strongest signal, checked before any process query.
 fn hwnd_is_mc(hwnd: HWND) -> bool {
     if hwnd.is_null() {
         return false;
@@ -333,14 +329,14 @@ fn hwnd_is_mc(hwnd: HWND) -> bool {
     }
     let cls = window_class(hwnd).to_lowercase();
     if has_render_class(&cls) {
-        return true; // GLFW/LWJGL game window (MC Java 1.13+ / most clients)
+        return true; // glfw/lwjgl game window (mc java 1.13+ / most clients)
     }
     if cls == "bedrock" {
-        return true; // Minecraft Bedrock's window class (process query is unreliable for it)
+        return true; // bedrock's window class (process query is unreliable for it)
     }
     let pname = foreground_process_name(hwnd).to_lowercase();
     if pname == "minecraft.windows" || pname == "minecraft" {
-        return true; // Bedrock
+        return true; // bedrock
     }
     if pname == "java" || pname == "javaw" {
         return title_suggests_minecraft(&title);
@@ -348,14 +344,14 @@ fn hwnd_is_mc(hwnd: HWND) -> bool {
     false
 }
 
-/// True when Minecraft is the focused window (used to gate clicking in "only in-game" mode).
+/// true when mc is the focused window — gates clicking in "only in-game"
 pub fn is_minecraft_active() -> bool {
     let hwnd = unsafe { GetForegroundWindow() };
     hwnd_is_mc(hwnd)
 }
 
 unsafe extern "system" fn enum_mc(hwnd: HWND, lparam: isize) -> i32 {
-    // Cheap pre-filter (class/title) so we only run a process query on real candidates.
+    // cheap class/title pre-filter so we only do a process query on real candidates
     if unsafe { IsWindowVisible(hwnd) } == 0 {
         return 1;
     }
@@ -369,8 +365,8 @@ unsafe extern "system" fn enum_mc(hwnd: HWND, lparam: isize) -> i32 {
     1
 }
 
-/// True when a Minecraft game window exists anywhere (running, even if not focused). Used for
-/// the status badge — distinct from `is_minecraft_active` which the clicker uses.
+/// true if an mc window exists anywhere (running, even if not focused). for the status badge —
+/// unlike is_minecraft_active which the clicker uses.
 pub fn is_minecraft_running() -> bool {
     let mut found = false;
     unsafe {

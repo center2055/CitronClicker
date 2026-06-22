@@ -1,13 +1,12 @@
-//! OS-agnostic timing math: a small xoshiro256** RNG, the humanized delay generator ported
-//! from the old Citron `HumanizedDelayGenerator`, the fixed (humanize-off) period, and the
-//! smooth jitter generator. All delays are in milliseconds; `get_delays` returns (up, down).
+//! timing math: xoshiro256** rng, the humanized delay generator, the fixed (humanize-off)
+//! period, and smooth jitter. all delays in ms; get_delays returns (up, down).
 
 use std::f64::consts::{PI, TAU};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_CPS_UI: f64 = 20.0;
 
-/// xoshiro256** seeded via SplitMix64 from the system clock + a per-side salt.
+/// xoshiro256**, seeded from the clock + a per-side salt via splitmix64
 pub struct Rng {
     s: [u64; 4],
 }
@@ -27,7 +26,7 @@ impl Rng {
             z ^ (z >> 31)
         };
         let s = [sm(), sm(), sm(), sm()];
-        // Avoid the all-zero state.
+        // all-zero state is degenerate
         if s == [0; 4] {
             return Self { s: [1, 2, 3, 4] };
         }
@@ -47,12 +46,12 @@ impl Rng {
         result
     }
 
-    /// Uniform f64 in [0, 1).
+    /// f64 in [0,1)
     pub fn unit(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
     }
 
-    /// Uniform integer in [lo, hi).
+    /// int in [lo,hi)
     pub fn range(&mut self, lo: i32, hi: i32) -> i32 {
         if hi <= lo {
             lo
@@ -62,12 +61,10 @@ impl Rng {
     }
 }
 
-/// Humanized click timing (evolved from `HumanizedDelayGenerator.GetDelays`). Returns
-/// `(up_ms, down_ms)`. CPS is sampled with density proportional to the rate so the realized
-/// wall-clock average equals the [min,max] midpoint (see `get_delays`), then perturbed by a
-/// Box–Muller gaussian and a slow sine drift. The core period is clamped into the [min,max] bounds
-/// to hold that average, then a small fraction of clicks get a hesitation/flick that drifts just
-/// past the bounds, giving the distribution natural soft tails instead of hard walls.
+/// humanized click timing. returns (up_ms, down_ms). cps is sampled weighted by rate so the
+/// measured average lands on the [min,max] midpoint, then nudged by a gaussian + slow sine drift.
+/// core period is clamped to the range, then a few clicks get a hesitation/flick past the edges
+/// for natural tails instead of hard walls.
 pub struct HumanizedDelay {
     drift: f64,
 }
@@ -84,13 +81,10 @@ impl HumanizedDelay {
         let eff_max = hi.max(lo);
         let span = eff_max - eff_min;
 
-        // Sample CPS with density proportional to the rate (inverse-CDF of a linear pdf:
-        // sqrt(min^2 + u*(max^2 - min^2))). Sampling CPS *uniformly* feels right but is wrong for
-        // the wall-clock rate a CPS test measures: a slow click occupies far more elapsed time than
-        // a fast one (a 1-CPS click is a full second, a 20-CPS click is 50ms), so uniform sampling
-        // lets the slow end dominate the timeline and the measured rate collapses to the logarithmic
-        // mean (1..20 -> ~6.3, not 10.5). Weighting by rate cancels that 1/cps time-dilation exactly,
-        // so the long-run measured CPS equals the [min,max] midpoint at any range width.
+        // sample cps weighted by rate (inverse-cdf of a linear pdf). sampling uniformly looks right
+        // but tanks the measured rate: a slow click eats far more wall-clock than a fast one, so the
+        // slow end dominates and 1..20 reads ~6.3 not 10.5. weighting cancels the 1/cps dilation so
+        // the average = midpoint at any width.
         let u = rng.unit();
         let mut sample_cps = if span <= 0.0 {
             eff_min
@@ -108,31 +102,27 @@ impl HumanizedDelay {
 
         self.drift += 0.1;
         if self.drift > TAU {
-            self.drift -= TAU; // keep sin() precise over long sessions
+            self.drift -= TAU; // keep sin() sane over long runs
         }
         let drift_factor = 1.0 + self.drift.sin() * 0.04;
         let jitter = (1.0 + std_normal * 0.05).clamp(0.93, 1.07);
         let mut period = target_period * drift_factor * jitter;
 
-        // Clamp the *core* period into the user's [min,max] so the bulk of clicks stay in range and
-        // the long-run average tracks the midpoint. (The old 50ms tick-magnetization was removed —
-        // it snapped periods toward the 50/60ms buckets, which skewed the average and could overshoot
-        // max.)
-        let min_period = 1000.0 / eff_max; // fastest allowed
-        let max_period = 1000.0 / eff_min; // slowest allowed
+        // clamp the core period to the range so the bulk stays in bounds and the average holds.
+        // (old 50ms tick-snapping is gone — it skewed the average and could overshoot max.)
+        let min_period = 1000.0 / eff_max; // fastest
+        let max_period = 1000.0 / eff_min; // slowest
         period = period.clamp(min_period, max_period);
 
-        // Natural tails, applied AFTER the clamp so they actually survive (clamping first would
-        // truncate them into a hard wall with no tail — a faintly bot-like signature). A small
-        // fraction of clicks drift slightly past the bounds: a brief hesitation (slow) or a quick
-        // flick (fast), like a real hand. Rare and small, so the midpoint average barely moves.
+        // tails, after the clamp so they survive (clamping first = hard wall, no tail, botlike).
+        // a few clicks drift past the edges: a brief hesitation (slow) or a quick flick (fast).
         let r = rng.unit();
         if r < 0.006 {
-            period += rng.range(8, 30) as f64; // brief hesitation — slow tail past max-period
+            period += rng.range(8, 30) as f64; // hesitation, slow tail
         } else if r < 0.018 {
-            period += rng.range(2, 8) as f64; // soft slow drift
+            period += rng.range(2, 8) as f64; // small drift slower
         } else if r < 0.030 {
-            period -= rng.range(2, 8) as f64; // quick flick — fast tail past min-period
+            period -= rng.range(2, 8) as f64; // flick, fast tail
         }
         period = period.max(5.0);
 
@@ -153,8 +143,7 @@ impl HumanizedDelay {
     }
 }
 
-/// Fixed (humanize-off) timing: a perfectly periodic interval — more effective, more
-/// detectable. Returns `(up_ms, down_ms)`.
+/// fixed (humanize-off) timing — perfectly periodic. more effective, easier to flag.
 pub fn fixed_delays(cps: f32) -> (f64, f64) {
     let cps = (cps as f64).clamp(1.0, MAX_CPS_UI);
     let total = 1000.0 / cps;
@@ -163,7 +152,7 @@ pub fn fixed_delays(cps: f32) -> (f64, f64) {
     (up, down)
 }
 
-/// Smooth jitter (ported from `SmoothJitterLoop`): sine/cos offsets scaled by intensity.
+/// smooth jitter: sine/cos offsets scaled by intensity
 pub struct SmoothJitter {
     time: f64,
 }
@@ -197,22 +186,21 @@ impl SmoothJitter {
 mod tests {
     use super::*;
 
-    /// Realized wall-clock CPS over a long run = total clicks / total elapsed time.
+    /// measured cps over a long run = clicks / elapsed time
     fn measured_cps(min: f32, max: f32, clicks: u32) -> f64 {
         let mut rng = Rng::seeded(0xC174_0);
         let mut hd = HumanizedDelay::new();
         let mut total_ms = 0.0;
         for _ in 0..clicks {
             let (up, down) = hd.get_delays(min, max, &mut rng);
-            total_ms += up + down; // one full click cycle
+            total_ms += up + down; // full click cycle
         }
         clicks as f64 * 1000.0 / total_ms
     }
 
     #[test]
     fn measured_rate_tracks_midpoint() {
-        // The number a CPS test reports must land on the slider midpoint, regardless of how wide
-        // the range is — the wide 1..20 case is the one that used to read ~6.3 instead of 10.5.
+        // a cps test must read the slider midpoint at any width — 1..20 used to read ~6.3 not 10.5
         for (min, max) in [(1.0f32, 20.0f32), (5.0, 15.0), (10.0, 12.0), (15.0, 20.0)] {
             let mid = (min + max) as f64 / 2.0;
             let got = measured_cps(min, max, 400_000);
@@ -227,12 +215,11 @@ mod tests {
 
     #[test]
     fn distribution_has_tails_but_stays_mostly_in_range() {
-        // The clamp holds the bulk inside [min,max]; the post-clamp hesitation/flick should let a
-        // small fraction spill just past the bounds so the distribution has soft tails (not a hard
-        // wall), while the vast majority stay in range.
+        // clamp keeps the bulk in [min,max]; the post-clamp hesitation/flick spills a few past the
+        // edges for soft tails, but the vast majority stay in range
         let (min, max) = (12.0f32, 18.0f32);
-        let min_p = 1000.0 / max as f64; // fastest allowed period
-        let max_p = 1000.0 / min as f64; // slowest allowed period
+        let min_p = 1000.0 / max as f64; // fastest
+        let max_p = 1000.0 / min as f64; // slowest
         let mut rng = Rng::seeded(0x7A11_5);
         let mut hd = HumanizedDelay::new();
         let n = 200_000u32;
@@ -248,9 +235,9 @@ mod tests {
         }
         let out = slow_tail + fast_tail;
         let frac = out as f64 / n as f64;
-        // Tails exist in both directions...
+        // tails both ways...
         assert!(slow_tail > 0 && fast_tail > 0, "expected tails both ways: slow={slow_tail} fast={fast_tail}");
-        // ...but stay a small minority (the bulk is in range).
+        // ...but a small minority
         assert!(frac > 0.005 && frac < 0.06, "out-of-range fraction {:.3} should be a small minority", frac);
     }
 }
