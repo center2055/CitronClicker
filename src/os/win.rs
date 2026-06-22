@@ -21,10 +21,10 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CURSOR_SHOWING, CURSORINFO, CallNextHookEx, DispatchMessageW, EnumWindows, GetClassNameW,
-    GetCursorInfo, GetForegroundWindow, GetMessageW, GetWindowTextW, GetWindowThreadProcessId,
-    IsWindowVisible, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, PostThreadMessageW, SetWindowsHookExW,
-    TranslateMessage, UnhookWindowsHookEx, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_QUIT,
-    WM_RBUTTONDOWN, WM_RBUTTONUP,
+    GetCursorInfo, GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowTextW,
+    GetWindowThreadProcessId, IsWindowVisible, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT,
+    PostThreadMessageW, SM_CXSMICON, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
+    WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
 };
 
 static PHYS_LMB: AtomicBool = AtomicBool::new(false);
@@ -38,6 +38,14 @@ pub fn begin_timer_period() {
     unsafe {
         timeBeginPeriod(1);
     }
+}
+
+/// The notification-area icon size for the current DPI (16px @ 100%, 24px @ 150%, …). The process
+/// is per-monitor DPI-aware, so this is the physical pixel size the shell draws the tray icon at —
+/// pre-rendering the icon to exactly this size lets it draw 1:1 instead of being shell-scaled.
+pub fn small_icon_px() -> u32 {
+    let s = unsafe { GetSystemMetrics(SM_CXSMICON) };
+    if s <= 0 { 16 } else { s as u32 }
 }
 
 /// The low-level mouse hook proc. Runs on the hook thread while it pumps messages. Must never

@@ -101,6 +101,28 @@ fn load_icon() -> egui::IconData {
     }
 }
 
+/// Build the tray icon at exactly `px` square — the shell's small-icon size for the current DPI —
+/// so the notification area draws it 1:1 instead of low-quality-scaling our full-size source. Same
+/// flat-lime silhouette as the window icon, fit with a high-quality (Lanczos3) filter and centered.
+fn load_tray_icon(px: u32) -> (Vec<u8>, u32, u32) {
+    let img = image::load_from_memory(include_bytes!("../assets/citron_fruit.png"))
+        .expect("icon")
+        .to_rgba8();
+    // Recolor to the brand lime using the source alpha as the mask (matches the window icon).
+    let mut lime = image::RgbaImage::new(img.width(), img.height());
+    for (x, y, p) in img.enumerate_pixels() {
+        lime.put_pixel(x, y, image::Rgba([216, 242, 74, p[3]]));
+    }
+    // Fit into px×px preserving aspect, then center on a transparent square.
+    let scale = px as f32 / img.width().max(img.height()) as f32;
+    let nw = ((img.width() as f32 * scale).round() as u32).max(1);
+    let nh = ((img.height() as f32 * scale).round() as u32).max(1);
+    let resized = image::imageops::resize(&lime, nw, nh, image::imageops::FilterType::Lanczos3);
+    let mut canvas = image::RgbaImage::new(px, px);
+    image::imageops::overlay(&mut canvas, &resized, ((px - nw) / 2) as i64, ((px - nh) / 2) as i64);
+    (canvas.into_raw(), px, px)
+}
+
 /// Render the wordmark to a texture at the EXACT device-pixel size it will display at, so it
 /// draws 1:1 (crisp, like a font glyph) instead of being mipmap-downscaled (soft). Re-baked
 /// when the DPI (pixels_per_point) changes.
@@ -346,8 +368,8 @@ impl CitronApp {
             },
             audio.clone(),
         );
-        let ti = load_icon();
-        let tray_mgr = tray::TrayManager::new(ti.rgba, ti.width, ti.height);
+        let (tray_rgba, tray_w, tray_h) = load_tray_icon(os::small_icon_px());
+        let tray_mgr = tray::TrayManager::new(tray_rgba, tray_w, tray_h);
         let mut app = Self {
             tab: Tab::Left,
             left,
