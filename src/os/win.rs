@@ -11,9 +11,9 @@ use std::thread;
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::Media::timeBeginPeriod;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::ProcessStatus::K32GetModuleBaseNameW;
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcessId, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
@@ -253,17 +253,22 @@ fn foreground_process_name(hwnd: HWND) -> String {
         if handle.is_null() {
             return String::new();
         }
-        let mut buf = [0u16; 260];
-        let n = K32GetModuleBaseNameW(handle, ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32);
+        // QueryFullProcessImageNameW, not K32GetModuleBaseNameW: the latter returns ACCESS_DENIED
+        // for sandboxed app-container processes like Minecraft Bedrock (Minecraft.Windows.exe),
+        // which would silently break detection. This returns a full path; take the file name.
+        let mut buf = [0u16; 512];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len);
         CloseHandle(handle);
-        if n == 0 {
+        if ok == 0 || len == 0 {
             return String::new();
         }
-        let mut name = String::from_utf16_lossy(&buf[..n as usize]);
-        if let Some(stripped) = name.strip_suffix(".exe") {
-            name = stripped.to_string();
+        let full = String::from_utf16_lossy(&buf[..len as usize]);
+        let file = full.rsplit(['\\', '/']).next().unwrap_or(&full);
+        match file.get(file.len().saturating_sub(4)..) {
+            Some(ext) if ext.eq_ignore_ascii_case(".exe") => file[..file.len() - 4].to_string(),
+            _ => file.to_string(),
         }
-        name
     }
 }
 
@@ -327,6 +332,9 @@ fn hwnd_is_mc(hwnd: HWND) -> bool {
     if has_render_class(&cls) {
         return true; // GLFW/LWJGL game window (MC Java 1.13+ / most clients)
     }
+    if cls == "bedrock" {
+        return true; // Minecraft Bedrock's window class (process query is unreliable for it)
+    }
     let pname = foreground_process_name(hwnd).to_lowercase();
     if pname == "minecraft.windows" || pname == "minecraft" {
         return true; // Bedrock
@@ -350,7 +358,8 @@ unsafe extern "system" fn enum_mc(hwnd: HWND, lparam: isize) -> i32 {
     }
     let cls = window_class(hwnd).to_lowercase();
     let title = window_title(hwnd).to_lowercase();
-    if (has_render_class(&cls) || title.contains("minecraft")) && hwnd_is_mc(hwnd) {
+    if (has_render_class(&cls) || cls == "bedrock" || title.contains("minecraft")) && hwnd_is_mc(hwnd)
+    {
         unsafe { *(lparam as *mut bool) = true };
         return 0; // found — stop enumerating
     }
