@@ -504,7 +504,7 @@ impl CitronApp {
     }
 
     fn sync_system(&mut self, ctx: &egui::Context) {
-        // Intercept OS-level closes (Alt+F4, taskbar "Close window") while minimize-to-tray is
+        // Intercept OS-level closes (Alt+F4, taskbar "Close window") while close-to-tray is
         // on: cancel the close and tuck into the tray instead. `quitting` is the escape hatch the
         // tray's Quit menu sets so a genuine exit isn't swallowed here.
         if !self.quitting
@@ -983,8 +983,9 @@ impl CitronApp {
                     );
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        // With "Minimize to tray" on, both X and _ tuck the window into the
-                        // tray instead of quitting — the only real exit is the tray's Quit menu.
+                        // With "Close to tray" on, the X tucks the window into the tray instead of
+                        // quitting (exit via the tray's Quit menu). Minimize always behaves like a
+                        // normal minimize to the taskbar.
                         let to_tray = self.tray && self.tray_mgr.is_some();
                         if win_btn(ui, ic::CLOSE).clicked() {
                             if to_tray {
@@ -995,12 +996,7 @@ impl CitronApp {
                             }
                         }
                         if win_btn(ui, ic::MINUS).clicked() {
-                            if to_tray {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-                                self.hidden = true;
-                            } else {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-                            }
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
                         ui.add_space(6.0);
                         status_pill(ui, active, self.accent);
@@ -1317,7 +1313,7 @@ impl CitronApp {
                 })
             },
             |ui| {
-                option_row(ui, ic::TRAY, "Minimize to tray", "", accent, |ui| {
+                option_row(ui, ic::TRAY, "Close to tray", "", accent, |ui| {
                     toggle(ui, &mut self.tray, accent);
                 })
             },
