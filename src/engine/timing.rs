@@ -62,9 +62,11 @@ impl Rng {
     }
 }
 
-/// Humanized click timing. Ported from `HumanizedDelayGenerator.GetDelays`: sqrt-biased CPS
-/// sampling toward the max, Box–Muller gaussian, sine drift, rare perturbations, and 50ms
-/// tick-bucket magnetization. Returns `(up_ms, down_ms)`.
+/// Humanized click timing (evolved from `HumanizedDelayGenerator.GetDelays`). Returns
+/// `(up_ms, down_ms)`. CPS is sampled with density proportional to the rate so the realized
+/// wall-clock average equals the [min,max] midpoint (see `get_delays`), then perturbed by a
+/// Box–Muller gaussian and a slow sine drift, nudged by rare ms-scale jitters, and finally clamped
+/// so the period stays within the [min,max] bounds.
 pub struct HumanizedDelay {
     drift: f64,
 }
@@ -81,12 +83,18 @@ impl HumanizedDelay {
         let eff_max = hi.max(lo);
         let span = eff_max - eff_min;
 
-        // Uniform sampling across [min, max] so the long-run average equals the midpoint.
+        // Sample CPS with density proportional to the rate (inverse-CDF of a linear pdf:
+        // sqrt(min^2 + u*(max^2 - min^2))). Sampling CPS *uniformly* feels right but is wrong for
+        // the wall-clock rate a CPS test measures: a slow click occupies far more elapsed time than
+        // a fast one (a 1-CPS click is a full second, a 20-CPS click is 50ms), so uniform sampling
+        // lets the slow end dominate the timeline and the measured rate collapses to the logarithmic
+        // mean (1..20 -> ~6.3, not 10.5). Weighting by rate cancels that 1/cps time-dilation exactly,
+        // so the long-run measured CPS equals the [min,max] midpoint at any range width.
         let u = rng.unit();
         let mut sample_cps = if span <= 0.0 {
             eff_min
         } else {
-            eff_min + span * u
+            (eff_min * eff_min + u * (eff_max * eff_max - eff_min * eff_min)).sqrt()
         };
         if sample_cps < 1.0 {
             sample_cps = 1.0;
@@ -173,6 +181,39 @@ impl SmoothJitter {
             Some((ix, iy))
         } else {
             None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Realized wall-clock CPS over a long run = total clicks / total elapsed time.
+    fn measured_cps(min: f32, max: f32, clicks: u32) -> f64 {
+        let mut rng = Rng::seeded(0xC174_0);
+        let mut hd = HumanizedDelay::new();
+        let mut total_ms = 0.0;
+        for _ in 0..clicks {
+            let (up, down) = hd.get_delays(min, max, &mut rng);
+            total_ms += up + down; // one full click cycle
+        }
+        clicks as f64 * 1000.0 / total_ms
+    }
+
+    #[test]
+    fn measured_rate_tracks_midpoint() {
+        // The number a CPS test reports must land on the slider midpoint, regardless of how wide
+        // the range is — the wide 1..20 case is the one that used to read ~6.3 instead of 10.5.
+        for (min, max) in [(1.0f32, 20.0f32), (5.0, 15.0), (10.0, 12.0), (15.0, 20.0)] {
+            let mid = (min + max) as f64 / 2.0;
+            let got = measured_cps(min, max, 400_000);
+            let err = (got - mid).abs() / mid;
+            assert!(
+                err < 0.04,
+                "range {min}-{max}: expected ~{mid} cps, measured {got:.2} ({:.1}% off)",
+                err * 100.0
+            );
         }
     }
 }
