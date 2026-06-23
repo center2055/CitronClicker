@@ -559,13 +559,17 @@ impl CitronApp {
                 self.hidden = false;
             }
             Some(tray::TrayAction::Quit) => {
-                self.quitting = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                // hard, reliable quit: stop the engine (releases the mouse + removes the hook),
+                // drop the tray icon so it doesn't linger, then exit. config auto-saves every 1s.
+                self.engine.shutdown();
+                self.tray_mgr = None;
+                std::process::exit(0);
             }
             None => {}
         }
-        // while hidden, keep ticking so we can still poll tray events to restore
-        if self.hidden {
+        // keep polling the tray while its icon is up — the window may be hidden, minimized, or
+        // behind the game, and tray menu clicks must still be handled
+        if self.tray && self.tray_mgr.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(150));
         }
     }
