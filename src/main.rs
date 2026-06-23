@@ -303,6 +303,8 @@ struct CitronApp {
     tray_mgr: Option<tray::TrayManager>,
     hidden: bool,
     quitting: bool,
+    tray_menu: Option<egui::Pos2>,
+    tray_menu_focused: bool,
     tray_applied: Option<bool>,
     autostart_applied: Option<bool>,
 }
@@ -413,6 +415,8 @@ impl CitronApp {
             tray_mgr,
             hidden: false,
             quitting: false,
+            tray_menu: None,
+            tray_menu_focused: false,
             tray_applied: None,
             autostart_applied: None,
         };
@@ -557,13 +561,14 @@ impl CitronApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 self.hidden = false;
+                self.tray_menu = None;
             }
-            Some(tray::TrayAction::Quit) => {
-                // hard, reliable quit: stop the engine (releases the mouse + removes the hook),
-                // drop the tray icon so it doesn't linger, then exit. config auto-saves every 1s.
-                self.engine.shutdown();
-                self.tray_mgr = None;
-                std::process::exit(0);
+            Some(tray::TrayAction::Menu { x, y }) => {
+                // physical cursor px -> egui logical points
+                let ppp = ctx.pixels_per_point();
+                self.tray_menu = Some(egui::pos2(x as f32 / ppp, y as f32 / ppp));
+                self.tray_menu_focused = false;
+                ctx.request_repaint();
             }
             None => {}
         }
@@ -571,6 +576,75 @@ impl CitronApp {
         // behind the game, and tray menu clicks must still be handled
         if self.tray && self.tray_mgr.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(150));
+        }
+    }
+
+    // our own themed tray menu (a tiny always-on-top viewport) instead of the plain native one.
+    // dismiss on button, escape, or focus loss.
+    fn tray_menu_popup(&mut self, ctx: &egui::Context) {
+        let cursor = match self.tray_menu {
+            Some(p) => p,
+            None => return,
+        };
+        let (w, h) = (184.0_f32, 76.0_f32);
+        // tray sits bottom-right, so pop up-left of the cursor
+        let pos = egui::pos2((cursor.x - w).max(4.0), (cursor.y - h).max(4.0));
+        let accent = self.accent;
+        let (mut show, mut quit, mut esc, mut focused_now) = (false, false, false, false);
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("tray_menu"),
+            egui::ViewportBuilder::default()
+                .with_position(pos)
+                .with_inner_size([w, h])
+                .with_decorations(false)
+                .with_resizable(false)
+                .with_always_on_top()
+                .with_active(true)
+                .with_taskbar(false),
+            |ctx, _| {
+                focused_now = ctx.input(|i| i.focused);
+                esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+                let screen = ctx.content_rect();
+                egui::Area::new(egui::Id::new("tray_menu_area"))
+                    .fixed_pos(screen.min)
+                    .show(ctx, |ui| {
+                        egui::Frame::default()
+                            .fill(PANEL)
+                            .stroke(Stroke::new(1.0, WIN_BORDER))
+                            .inner_margin(Margin::same(6))
+                            .show(ui, |ui| {
+                                ui.set_width(screen.width() - 12.0);
+                                ui.spacing_mut().item_spacing.y = 4.0;
+                                if tray_menu_item(ui, ic::TRAY, "Show Citron v2", accent) {
+                                    show = true;
+                                }
+                                if tray_menu_item(ui, ic::POWER, "Quit", accent) {
+                                    quit = true;
+                                }
+                            });
+                    });
+            },
+        );
+        if focused_now {
+            self.tray_menu_focused = true;
+        }
+        let lost_focus = self.tray_menu_focused && !focused_now;
+        if show {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            self.hidden = false;
+            self.tray_menu = None;
+            self.tray_menu_focused = false;
+        } else if quit {
+            self.engine.shutdown();
+            self.tray_mgr = None;
+            std::process::exit(0);
+        } else if esc || lost_focus {
+            self.tray_menu = None;
+            self.tray_menu_focused = false;
+        } else {
+            ctx.request_repaint(); // keep the immediate viewport alive while open
         }
     }
 }
@@ -627,6 +701,25 @@ fn icon_box(ui: &mut egui::Ui, ch: char, accent: Color32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::hover());
     ui.painter().rect_filled(rect, CornerRadius::same(9), PANEL2);
     paint_icon(ui.painter(), rect.center(), ch, 17.0, accent);
+}
+
+// one row of the themed tray menu: icon + label, accent-highlighted on hover
+fn tray_menu_item(ui: &mut egui::Ui, glyph: char, label: &str, accent: Color32) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 30.0), Sense::click());
+    let hov = resp.hovered();
+    if hov {
+        ui.painter().rect_filled(rect, CornerRadius::same(6), PANEL2);
+    }
+    let col = if hov { accent } else { TXT };
+    paint_icon(ui.painter(), Pos2::new(rect.left() + 16.0, rect.center().y), glyph, 15.0, col);
+    let g = ui.painter().layout_no_wrap(
+        label.to_string(),
+        FontId::new(13.0, egui::FontFamily::Name("semibold".into())),
+        col,
+    );
+    ui.painter()
+        .galley(Pos2::new(rect.left() + 32.0, rect.center().y - g.size().y / 2.0), g, col);
+    resp.clicked()
 }
 
 // straight rgb lerp (colours here are opaque)
@@ -988,6 +1081,7 @@ impl eframe::App for CitronApp {
             .store(self.rebind.is_some(), Ordering::Relaxed);
 
         self.sync_system(&ctx);
+        self.tray_menu_popup(&ctx);
 
         if self.saved.as_ref() != Some(&self.snapshot()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(1100));
