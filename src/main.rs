@@ -931,7 +931,7 @@ impl eframe::App for CitronApp {
                 Tab::Settings => self.settings_tab(ui),
             });
 
-        self.humanize_modal(&ctx, win);
+        self.humanize_modal(&ctx);
         self.sync_engine();
 
         // pack changed -> tell the audio thread which sound to load (custom is set at pick time)
@@ -1339,65 +1339,56 @@ impl CitronApp {
         }
     }
 
-    fn humanize_modal(&mut self, ctx: &egui::Context, win: Rect) {
+    fn humanize_modal(&mut self, ctx: &egui::Context) {
         let is_left = match self.humanize_warn {
             Some(v) => v,
             None => return,
         };
-        // scrim: dim + swallow all input (also blocks the drag handler beneath)
-        egui::Area::new(egui::Id::new("hz_scrim"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(win.left_top())
-            .show(ctx, |ui| {
-                let _ = ui.allocate_response(win.size(), Sense::click_and_drag());
-                ui.painter().rect_filled(
-                    Rect::from_min_size(win.left_top(), win.size()),
-                    CornerRadius::same(16),
-                    Color32::from_rgba_unmultiplied(4, 6, 3, 192),
-                );
-            });
         let accent = self.accent;
         let mut keep = false;
         let mut disable = false;
-        egui::Area::new(egui::Id::new("hz_card"))
-            .order(egui::Order::Foreground)
-            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-            .show(ctx, |ui| {
-                ui.set_max_width(400.0);
+        // egui::Modal owns the backdrop + keeps its content the top interactable layer, so a
+        // click on the dim area can't bury the buttons (the old two-Area scrim+card could).
+        let resp = egui::Modal::new(egui::Id::new("hz_modal"))
+            .frame(
                 egui::Frame::default()
                     .fill(PANEL)
                     .stroke(Stroke::new(1.0, accent))
                     .corner_radius(CornerRadius::same(14))
-                    .inner_margin(Margin::same(20))
-                    .show(ui, |ui| {
-                        ui.set_width(360.0);
-                        ui.horizontal(|ui| {
-                            ui.label(iconrt(ic::ZAP, 18.0, accent));
-                            ui.add_space(2.0);
-                            ui.label(semibold("Disable humanization?", 16.0, TXT));
-                        });
-                        ui.add_space(10.0);
-                        ui.label(
-                            RichText::new(
-                                "A perfectly periodic clicker is more effective \u{2014} but far \
-                                 easier to detect. Some servers' anti-cheat can flag the regular \
-                                 timing and ban your account. Humanized timing is strongly \
-                                 recommended.",
-                            )
-                            .size(12.5)
-                            .color(MUT),
-                        );
-                        ui.add_space(16.0);
-                        ui.columns(2, |c| {
-                            if modal_btn(&mut c[0], "Keep humanized", accent, true) {
-                                keep = true;
-                            }
-                            if modal_btn(&mut c[1], "Disable anyway", MUT, false) {
-                                disable = true;
-                            }
-                        });
-                    });
+                    .inner_margin(Margin::same(20)),
+            )
+            .show(ctx, |ui| {
+                ui.set_width(360.0);
+                ui.horizontal(|ui| {
+                    ui.label(iconrt(ic::ZAP, 18.0, accent));
+                    ui.add_space(2.0);
+                    ui.label(semibold("Disable humanization?", 16.0, TXT));
+                });
+                ui.add_space(10.0);
+                ui.label(
+                    RichText::new(
+                        "A perfectly periodic clicker is more effective \u{2014} but far \
+                         easier to detect. Some servers' anti-cheat can flag the regular \
+                         timing and ban your account. Humanized timing is strongly \
+                         recommended.",
+                    )
+                    .size(12.5)
+                    .color(MUT),
+                );
+                ui.add_space(16.0);
+                ui.columns(2, |c| {
+                    if modal_btn(&mut c[0], "Keep humanized", accent, true) {
+                        keep = true;
+                    }
+                    if modal_btn(&mut c[1], "Disable anyway", MUT, false) {
+                        disable = true;
+                    }
+                });
             });
+        // click the dim backdrop or press escape = cancel (keep humanized)
+        if resp.should_close() {
+            keep = true;
+        }
         if keep {
             self.humanize_warn = None;
         }
@@ -1409,7 +1400,6 @@ impl CitronApp {
             }
             self.humanize_warn = None;
         }
-        ctx.request_repaint();
     }
 }
 
