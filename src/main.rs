@@ -887,7 +887,7 @@ impl eframe::App for CitronApp {
         if let Some(target) = self.rebind {
             let armed_at = self.rebind_armed_at;
             let this_frame = ctx.cumulative_frame_nr();
-            let captured: Option<String> = ctx.input(|i| {
+            let mut captured: Option<String> = ctx.input(|i| {
                 for ev in &i.events {
                     match ev {
                         egui::Event::Key { key, pressed: true, repeat: false, .. } => {
@@ -906,6 +906,10 @@ impl eframe::App for CitronApp {
                 }
                 None
             });
+            // caps lock has no egui key event — poll it directly (skip the arming frame)
+            if captured.is_none() && this_frame != armed_at && os::key_held(0x14) {
+                captured = Some("Caps Lock".to_string());
+            }
             if let Some(name) = captured {
                 match target {
                     RebindTarget::Clicker { is_left, slot } => {

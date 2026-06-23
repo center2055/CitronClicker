@@ -147,6 +147,7 @@ pub fn vk_from_name(name: &str) -> i32 {
         "ctrl" | "control" => 0x11,
         "alt" => 0x12,
         "tab" => 0x09,
+        "caps lock" | "capslock" | "caps" => 0x14,
         _ => {
             if n.chars().count() == 1 {
                 let ch = n.chars().next().unwrap().to_ascii_uppercase();
