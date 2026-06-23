@@ -638,6 +638,15 @@ fn toggle(ui: &mut egui::Ui, on: &mut bool, accent: Color32) -> egui::Response {
     resp
 }
 
+// cps without a trailing .0 — whole numbers show "13", decimals show "13.5"
+fn fmt_cps(v: f32) -> String {
+    if (v - v.round()).abs() < 0.05 {
+        format!("{}", v.round() as i32)
+    } else {
+        format!("{:.1}", v)
+    }
+}
+
 fn dual_range(ui: &mut egui::Ui, min: &mut f32, max: &mut f32, accent: Color32) {
     let (rect, resp) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), 26.0), Sense::click_and_drag());
@@ -647,7 +656,7 @@ fn dual_range(ui: &mut egui::Ui, min: &mut f32, max: &mut f32, accent: Color32) 
     if resp.dragged() || resp.clicked() {
         if let Some(pos) = resp.interact_pointer_pos() {
             let t = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
-            let val = (lo + t * (hi - lo)).round();
+            let val = ((lo + t * (hi - lo)) * 10.0).round() / 10.0; // 0.1 steps: decimals + smooth
             if (pos.x - to_x(*min)).abs() <= (pos.x - to_x(*max)).abs() {
                 *min = val.min(*max);
             } else {
@@ -720,7 +729,7 @@ fn histogram(ui: &mut egui::Ui, histo: &[f32], accent: Color32) {
 
 fn avg_pill(ui: &mut egui::Ui, avg_value: f32, accent: Color32) {
     let (row, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 28.0), Sense::hover());
-    let avg = format!("{:.1}", avg_value);
+    let avg = fmt_cps(avg_value);
     let p = ui.painter();
     let g_lbl = p.layout_no_wrap("Avg cps".to_string(), FontId::proportional(12.5), MUT);
     let g_val = p.layout_no_wrap(
@@ -1083,10 +1092,10 @@ impl CitronApp {
             if ck.humanize {
                 ui.columns(2, |c| {
                     c[0].label(cap("MIN CPS", MUT));
-                    c[0].label(semibold(&format!("{}", ck.min_cps as i32), 40.0, accent));
+                    c[0].label(semibold(&fmt_cps(ck.min_cps), 40.0, accent));
                     c[1].with_layout(Layout::top_down(Align::Max), |ui| {
                         ui.label(cap("MAX CPS", MUT));
-                        ui.label(semibold(&format!("{}", ck.max_cps as i32), 40.0, accent));
+                        ui.label(semibold(&fmt_cps(ck.max_cps), 40.0, accent));
                     });
                 });
                 histogram(ui, &histo, accent);
@@ -1097,12 +1106,12 @@ impl CitronApp {
             } else {
                 ui.vertical_centered(|ui| {
                     ui.label(cap("CPS", MUT));
-                    ui.label(semibold(&format!("{}", ck.cps as i32), 40.0, accent));
+                    ui.label(semibold(&fmt_cps(ck.cps), 40.0, accent));
                 });
                 histogram(ui, &histo, accent);
                 ui.add_space(2.0);
                 single_slider(ui, &mut ck.cps, 1.0, 20.0, accent);
-                ck.cps = ck.cps.round();
+                ck.cps = (ck.cps * 10.0).round() / 10.0; // 0.1 steps
                 ui.add_space(8.0);
                 let _ = ui.allocate_exact_size(Vec2::new(ui.available_width(), 28.0), Sense::hover());
             }
