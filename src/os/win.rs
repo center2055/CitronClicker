@@ -8,23 +8,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread;
 
-use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, WPARAM,
+};
 use windows_sys::Win32::Media::timeBeginPeriod;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::{
-    GetCurrentProcessId, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    QueryFullProcessImageNameW,
+    CreateMutexW, GetCurrentProcessId, GetCurrentThreadId, OpenProcess,
+    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
     MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEINPUT, SendInput,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CURSOR_SHOWING, CURSORINFO, CallNextHookEx, DispatchMessageW, EnumWindows, GetClassNameW,
-    GetCursorInfo, GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowTextW,
-    GetWindowThreadProcessId, IsWindowVisible, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT,
-    PostThreadMessageW, SM_CXSMICON, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
-    WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    CURSOR_SHOWING, CURSORINFO, CallNextHookEx, DispatchMessageW, EnumWindows, FindWindowW,
+    GetClassNameW, GetCursorInfo, GetForegroundWindow, GetMessageW, GetSystemMetrics,
+    GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT,
+    PostThreadMessageW, SM_CXSMICON, SW_RESTORE, SetForegroundWindow, SetWindowsHookExW, ShowWindow,
+    TranslateMessage, UnhookWindowsHookEx, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_QUIT,
+    WM_RBUTTONDOWN, WM_RBUTTONUP,
 };
 
 static PHYS_LMB: AtomicBool = AtomicBool::new(false);
@@ -186,6 +189,36 @@ pub fn key_held(vk: i32) -> bool {
 
 pub fn any_window_focused() -> bool {
     unsafe { !GetForegroundWindow().is_null() }
+}
+
+/// true if we're the first instance. holds a named mutex for the whole process so a second launch
+/// can detect us. the handle leaks on purpose — the os frees the mutex when we exit (even on a
+/// hard kill), so the next launch starts clean.
+pub fn acquire_single_instance() -> bool {
+    let name: Vec<u16> = "Citron_v2_single_instance\0".encode_utf16().collect();
+    unsafe {
+        let h = CreateMutexW(ptr::null(), 1, name.as_ptr());
+        if h.is_null() {
+            return true; // couldn't create one — don't block startup
+        }
+        if GetLastError() == ERROR_ALREADY_EXISTS {
+            CloseHandle(h);
+            return false;
+        }
+        true
+    }
+}
+
+/// best effort: surface an already-running instance's window (e.g. when it's minimized or in tray)
+pub fn focus_existing_window() {
+    let title: Vec<u16> = "Citron v2\0".encode_utf16().collect();
+    unsafe {
+        let hwnd = FindWindowW(ptr::null(), title.as_ptr());
+        if !hwnd.is_null() {
+            ShowWindow(hwnd, SW_RESTORE);
+            SetForegroundWindow(hwnd);
+        }
+    }
 }
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
