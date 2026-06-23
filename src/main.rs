@@ -620,21 +620,28 @@ fn icon_box(ui: &mut egui::Ui, ch: char, accent: Color32) {
     paint_icon(ui.painter(), rect.center(), ch, 17.0, accent);
 }
 
+// straight rgb lerp (colours here are opaque)
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Color32::from_rgb(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()))
+}
+
 fn toggle(ui: &mut egui::Ui, on: &mut bool, accent: Color32) -> egui::Response {
     let (rect, mut resp) = ui.allocate_exact_size(Vec2::new(44.0, 24.0), Sense::click());
     if resp.clicked() {
         *on = !*on;
         resp.mark_changed();
     }
+    // glide the knob + crossfade the colours instead of snapping
+    let t = ui.ctx().animate_bool_with_time(resp.id, *on, 0.12);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(12), if *on { accent } else { TRACK });
+    p.rect_filled(rect, CornerRadius::same(12), lerp_color(TRACK, accent, t));
     let r = rect.height() * 0.5 - 3.0;
-    let cx = if *on {
-        rect.right() - r - 3.0
-    } else {
-        rect.left() + r + 3.0
-    };
-    p.circle_filled(Pos2::new(cx, rect.center().y), r, if *on { BG } else { KNOB_OFF });
+    let off_x = rect.left() + r + 3.0;
+    let on_x = rect.right() - r - 3.0;
+    let cx = off_x + (on_x - off_x) * t;
+    p.circle_filled(Pos2::new(cx, rect.center().y), r, lerp_color(KNOB_OFF, BG, t));
     resp
 }
 
