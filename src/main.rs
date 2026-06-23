@@ -226,6 +226,10 @@ fn default_cps() -> f32 {
     13.0
 }
 
+fn default_jitter_strength() -> i32 {
+    2
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct Clicker {
     enabled: bool,
@@ -238,6 +242,8 @@ struct Clicker {
     avoid_gui: bool,
     humanize: bool,
     jitter: bool,
+    #[serde(default = "default_jitter_strength")]
+    jitter_strength: i32,
     only_ingame: bool,
 }
 
@@ -305,7 +311,7 @@ fn snap_of(ck: &Clicker, is_left: bool) -> ClickerSnap {
         avoid_gui: ck.avoid_gui,
         humanize: ck.humanize,
         jitter: ck.jitter,
-        jitter_intensity: 2,
+        jitter_intensity: ck.jitter_strength,
         only_ingame: ck.only_ingame,
         suspend_vk: engine::vk_from_name(&ck.suspend),
         hotkey_vk: engine::vk_from_name(&ck.hotkey),
@@ -337,6 +343,7 @@ impl CitronApp {
             avoid_gui: true,
             humanize: true,
             jitter: false,
+            jitter_strength: 2,
             only_ingame: true,
         };
         let right = Clicker {
@@ -349,6 +356,7 @@ impl CitronApp {
             avoid_gui: true,
             humanize: true,
             jitter: false,
+            jitter_strength: 2,
             only_ingame: true,
         };
         let audio = audio::AudioHandle::spawn();
@@ -1158,6 +1166,27 @@ impl CitronApp {
                 })
             },
         );
+
+        // jitter strength slider, only while jitter is on
+        if ck.jitter {
+            ui.add_space(10.0);
+            row_frame().show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    icon_box(ui, ic::ACTIVITY, accent);
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Strength").size(13.5).color(TXT));
+                    ui.add_space(12.0);
+                    let mut v = ck.jitter_strength as f32;
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(semibold(&format!("{}", ck.jitter_strength), 14.0, accent));
+                        ui.add_space(10.0);
+                        single_slider(ui, &mut v, 1.0, 10.0, accent);
+                    });
+                    ck.jitter_strength = v.round() as i32;
+                });
+            });
+        }
 
         if warn {
             self.humanize_warn = Some(is_left);

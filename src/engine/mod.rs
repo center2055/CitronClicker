@@ -102,6 +102,12 @@ impl EngineHandle {
             let a = audio.clone();
             joins.push(thread::spawn(move || clicker_loop(is_left, s, c, a)));
         }
+        // jitter runs on its own ~100hz loop (not per-click) so the motion is smooth like v1
+        for is_left in [true, false] {
+            let s = signals.clone();
+            let c = config.clone();
+            joins.push(thread::spawn(move || jitter_loop(is_left, s, c)));
+        }
         {
             let s = signals.clone();
             let c = config.clone();
@@ -225,7 +231,6 @@ fn clicker_loop(
 ) {
     let mut rng = Rng::seeded(if is_left { 0xA17 } else { 0xB29 });
     let mut hd = HumanizedDelay::new();
-    let mut jit = SmoothJitter::new();
     let mut sched = ClickScheduler::new();
     let mut was_clicking = false;
 
@@ -264,7 +269,6 @@ fn clicker_loop(
         if should {
             if !was_clicking {
                 sched.reset();
-                jit.reset();
                 was_clicking = true;
             }
             let (up_ms, down_ms) = if snap.humanize {
@@ -277,11 +281,6 @@ fn clicker_loop(
             os::click_up(is_left);
             if audio_cfg.separate {
                 play_click(&audio, audio_cfg);
-            }
-            if snap.jitter {
-                if let Some((dx, dy)) = jit.next(snap.jitter_intensity, &mut rng) {
-                    os::jitter_move(dx, dy);
-                }
             }
             precise_delay(comp_up, &sig, is_left);
             if !os::physical_button_held(is_left) {
@@ -301,6 +300,48 @@ fn clicker_loop(
 
     if was_clicking {
         os::click_up(is_left); // don't leave a button stuck down on shutdown
+    }
+}
+
+// continuous aim-shake while the button is physically held in-game. own ~100hz loop (not tied to
+// the click rate) so the sine path is smooth — gated the same as clicking.
+fn jitter_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineConfig>>) {
+    let mut rng = Rng::seeded(if is_left { 0xC17 } else { 0xD29 });
+    let mut jit = SmoothJitter::new();
+    while sig.running.load(Ordering::Relaxed) {
+        let snap = {
+            let c = cfg.lock().unwrap();
+            if is_left { c.left.clone() } else { c.right.clone() }
+        };
+        let suspend = if is_left {
+            sig.suspend_left.load(Ordering::Relaxed)
+        } else {
+            sig.suspend_right.load(Ordering::Relaxed)
+        };
+        let focus_ok = if snap.only_ingame {
+            sig.mc_focused.load(Ordering::Relaxed)
+        } else {
+            sig.any_focused.load(Ordering::Relaxed)
+        };
+        let gui_block = snap.avoid_gui && snap.only_ingame && os::cursor_visible();
+        let active = snap.enabled
+            && snap.jitter
+            && !sig.panic.load(Ordering::Relaxed)
+            && !sig.capturing.load(Ordering::Relaxed)
+            && !os::foreground_is_self()
+            && focus_ok
+            && !gui_block
+            && !suspend
+            && os::physical_button_held(is_left);
+        if active {
+            if let Some((dx, dy)) = jit.next(snap.jitter_intensity, &mut rng) {
+                os::jitter_move(dx, dy);
+            }
+            thread::sleep(Duration::from_millis(10));
+        } else {
+            jit.reset();
+            thread::sleep(Duration::from_millis(16));
+        }
     }
 }
 
