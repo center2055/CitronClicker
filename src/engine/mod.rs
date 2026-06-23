@@ -402,11 +402,16 @@ fn key_poll_loop(
             Ordering::Relaxed,
         );
 
+        // flip the live config right here so the clicker stops/starts instantly — don't wait on a
+        // ui frame (citron is usually occluded behind the game, where request_repaint may not paint,
+        // which is why a toggle-off sometimes didn't take). the ToggleReq just syncs the ui widget.
         edge(snap.left.hotkey_vk, &mut left_was, || {
+            cfg.lock().unwrap().left.enabled ^= true;
             let _ = tx.send(ToggleReq::Left);
             ctx.request_repaint();
         });
         edge(snap.right.hotkey_vk, &mut right_was, || {
+            cfg.lock().unwrap().right.enabled ^= true;
             let _ = tx.send(ToggleReq::Right);
             ctx.request_repaint();
         });
