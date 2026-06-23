@@ -14,6 +14,5 @@ pub use stub::*;
 
 pub enum TrayAction {
     Show,
-    /// right-click — open our own themed menu at this screen position (physical px)
-    Menu { x: f64, y: f64 },
+    Quit,
 }
