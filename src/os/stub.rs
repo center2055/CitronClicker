@@ -5,6 +5,10 @@ pub fn begin_timer_period() {}
 pub fn small_icon_px() -> u32 {
     16
 }
+pub fn acquire_single_instance() -> bool {
+    true
+}
+pub fn focus_existing_window() {}
 pub fn start_input_hook() -> u32 {
     0
 }

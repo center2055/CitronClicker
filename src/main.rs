@@ -54,6 +54,11 @@ mod ic {
 }
 
 fn main() -> eframe::Result {
+    // single instance only — if one's already running, surface it and bail
+    if !os::acquire_single_instance() {
+        os::focus_existing_window();
+        return Ok(());
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([720.0, 730.0])
