@@ -582,11 +582,15 @@ impl CitronApp {
         }
     }
 
-    // our own themed tray menu. it's a PERSISTENT viewport (created once, only shown/hidden) so it
-    // never destroys a window while the main one is hidden — that's what made the app exit before.
+    // our own themed tray menu. it's a viewport, kept alive only while it's open OR while the
+    // window is hidden in the tray — so dismissing it never destroys a window under a hidden root
+    // (that exited the app before). when the main window is in normal use the popup doesn't exist
+    // at all, so its per-frame visibility churn can't interfere with the main window's input.
     fn tray_menu_popup(&mut self, ctx: &egui::Context) {
-        // only while the tray icon is live; created once and kept alive every frame after
-        if !(self.tray && self.tray_mgr.is_some()) {
+        let needed = self.tray
+            && self.tray_mgr.is_some()
+            && (self.tray_menu.is_some() || self.hidden);
+        if !needed {
             return;
         }
         let open = self.tray_menu.is_some();
