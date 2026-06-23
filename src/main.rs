@@ -1156,8 +1156,18 @@ impl CitronApp {
         two_col(
             ui,
             |ui| {
+                // jitter on -> a compact strength slider sits left of the toggle (no extra row, so
+                // the fixed-height window never overflows)
                 option_row(ui, ic::ACTIVITY, "Jitter", "Aim shake", accent, |ui| {
                     toggle(ui, &mut ck.jitter, accent);
+                    if ck.jitter {
+                        ui.add_space(8.0);
+                        ui.label(semibold(&format!("{}", ck.jitter_strength), 13.0, accent));
+                        ui.add_space(6.0);
+                        let mut v = ck.jitter_strength as f32;
+                        single_slider(ui, &mut v, 1.0, 10.0, accent);
+                        ck.jitter_strength = v.round() as i32;
+                    }
                 })
             },
             |ui| {
@@ -1166,27 +1176,6 @@ impl CitronApp {
                 })
             },
         );
-
-        // jitter strength slider, only while jitter is on
-        if ck.jitter {
-            ui.add_space(10.0);
-            row_frame().show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    icon_box(ui, ic::ACTIVITY, accent);
-                    ui.add_space(4.0);
-                    ui.label(RichText::new("Strength").size(13.5).color(TXT));
-                    ui.add_space(12.0);
-                    let mut v = ck.jitter_strength as f32;
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(semibold(&format!("{}", ck.jitter_strength), 14.0, accent));
-                        ui.add_space(10.0);
-                        single_slider(ui, &mut v, 1.0, 10.0, accent);
-                    });
-                    ck.jitter_strength = v.round() as i32;
-                });
-            });
-        }
 
         if warn {
             self.humanize_warn = Some(is_left);
