@@ -26,6 +26,7 @@ const TXT: Color32 = Color32::from_rgb(238, 243, 230);
 const MUT: Color32 = Color32::from_rgb(140, 148, 136);
 const KNOB_OFF: Color32 = Color32::from_rgb(207, 212, 198);
 const LOGO_H: f32 = 30.0; // title-bar logo height in points
+const BTC_ADDR: &str = "bc1q0gvnvrr0a64kpxylwgqkvlp5gt4c48jqxy9jy2";
 
 mod ic {
     pub const MOUSE: char = '\u{e28e}';
@@ -83,6 +84,7 @@ fn main() -> eframe::Result {
         Box::new(|cc| {
             setup_fonts(&cc.egui_ctx);
             setup_style(&cc.egui_ctx);
+            egui_extras::install_image_loaders(&cc.egui_ctx); // svg loader for the about icons
             Ok(Box::new(CitronApp::new(cc)))
         }),
     )
@@ -306,6 +308,7 @@ struct CitronApp {
     tray_menu: Option<egui::Pos2>,
     tray_menu_focused: bool,
     menu_focus_pending: bool,
+    btc_copied: Option<std::time::Instant>,
     tray_applied: Option<bool>,
     autostart_applied: Option<bool>,
 }
@@ -419,6 +422,7 @@ impl CitronApp {
             tray_menu: None,
             tray_menu_focused: false,
             menu_focus_pending: false,
+            btc_copied: None,
             tray_applied: None,
             autostart_applied: None,
         };
@@ -883,6 +887,43 @@ fn avg_pill(ui: &mut egui::Ui, avg_value: f32, accent: Color32) {
     p.galley(Pos2::new(x, cy - lbl_sz.y / 2.0), g_lbl, MUT);
     x += lbl_sz.x + gap;
     p.galley(Pos2::new(x, cy - val_sz.y / 2.0), g_val, accent);
+}
+
+// a clickable chip: official svg icon + label, opens `url` in the browser
+fn link_chip(ui: &mut egui::Ui, src: egui::ImageSource<'static>, label: &str, url: &str, accent: Color32) {
+    let r = egui::Frame::default()
+        .fill(PANEL2)
+        .corner_radius(CornerRadius::same(8))
+        .inner_margin(Margin::symmetric(11, 7))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.add(egui::Image::new(src).fit_to_exact_size(Vec2::splat(15.0)).tint(accent));
+                ui.add_space(7.0);
+                ui.label(RichText::new(label).size(12.5).color(accent));
+            });
+        });
+    let resp = r.response.interact(Sense::click());
+    if resp.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+    }
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+}
+
+// small text button (used for the BTC copy action)
+fn mini_btn(ui: &mut egui::Ui, label: &str, accent: Color32) -> bool {
+    let font = FontId::new(11.5, egui::FontFamily::Name("semibold".into()));
+    let g = ui.painter().layout_no_wrap(label.to_string(), font, accent);
+    let (rect, resp) = ui.allocate_exact_size(g.size() + Vec2::new(18.0, 10.0), Sense::click());
+    let bg = if resp.hovered() { accent } else { PANEL2 };
+    let fg = if resp.hovered() { BG } else { accent };
+    ui.painter().rect_filled(rect, CornerRadius::same(7), bg);
+    let g2 = ui.painter().layout_no_wrap(
+        label.to_string(),
+        FontId::new(11.5, egui::FontFamily::Name("semibold".into())),
+        fg,
+    );
+    ui.painter().galley(rect.center() - g2.size() / 2.0, g2, fg);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
 }
 
 fn modal_btn(ui: &mut egui::Ui, label: &str, color: Color32, filled: bool) -> bool {
@@ -1503,6 +1544,65 @@ impl CitronApp {
             self.rebind = Some(RebindTarget::Panic);
             self.rebind_armed_at = ui.ctx().cumulative_frame_nr();
         }
+
+        ui.add_space(12.0);
+        card().show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(cap("ABOUT", MUT));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(RichText::new(concat!("v", env!("CARGO_PKG_VERSION"))).size(12.0).color(MUT));
+                });
+            });
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                link_chip(
+                    ui,
+                    egui::include_image!("../assets/icons/github.svg"),
+                    "GitHub",
+                    "https://github.com/center2055/Citron-v2",
+                    accent,
+                );
+                link_chip(
+                    ui,
+                    egui::include_image!("../assets/icons/discord.svg"),
+                    "Discord",
+                    "https://discord.gg/y3MVspPzKQ",
+                    accent,
+                );
+                link_chip(
+                    ui,
+                    egui::include_image!("../assets/icons/kofi.svg"),
+                    "Ko-fi",
+                    "https://ko-fi.com/center2055",
+                    accent,
+                );
+            });
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::Image::new(egui::include_image!("../assets/icons/bitcoin.svg"))
+                        .fit_to_exact_size(Vec2::splat(15.0))
+                        .tint(MUT),
+                );
+                ui.add_space(7.0);
+                ui.label(RichText::new(BTC_ADDR).size(10.5).color(MUT));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let copied = self
+                        .btc_copied
+                        .is_some_and(|t| t.elapsed().as_secs_f32() < 1.5);
+                    if mini_btn(ui, if copied { "Copied!" } else { "Copy" }, accent) {
+                        ui.ctx().copy_text(BTC_ADDR.to_string());
+                        self.btc_copied = Some(std::time::Instant::now());
+                    }
+                    if copied {
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(300));
+                    }
+                });
+            });
+        });
     }
 
     fn humanize_modal(&mut self, ctx: &egui::Context) {
