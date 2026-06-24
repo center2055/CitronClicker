@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 eframe = { version = "0.34.3", features = ["persistence"] }
+egui_extras = { version = "0.34", features = ["svg"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 rfd = "0.17.2"
 rodio = { version = "0.22.2", default-features = false, features = ["playback", "wav"] }
