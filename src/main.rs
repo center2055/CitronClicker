@@ -1568,7 +1568,7 @@ impl CitronApp {
                     ui,
                     egui::include_image!("../assets/icons/github.svg"),
                     "GitHub",
-                    "https://github.com/center2055/Citron-v2",
+                    "https://github.com/center2055/CitronClicker",
                     accent,
                 );
                 link_chip(

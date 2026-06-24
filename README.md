@@ -1,6 +1,6 @@
 # Citron v2
 
-Version 2 of [Citron Clicker](https://github.com/center2055/CitronClicker) — rebuilt from the ground up in **Rust + [egui](https://github.com/emilk/egui)** instead of .NET.
+Version 2 of Citron Clicker, rebuilt from the ground up in **Rust + [egui](https://github.com/emilk/egui)** instead of .NET. (V1 was a .NET app; its source was sold and is no longer published here.)
 
 ## Why the rewrite
 
