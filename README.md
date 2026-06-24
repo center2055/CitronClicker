@@ -2,6 +2,8 @@
 
 Version 2 of Citron Clicker, rebuilt from the ground up in **Rust + [egui](https://github.com/emilk/egui)** instead of .NET. (V1 was a .NET app; its source was sold and is no longer published here.)
 
+![Citron v2](screenshot.png)
+
 ## Why the rewrite
 
 - **Lightweight.** One small native binary, no .NET runtime, no bundled browser. (The old self-contained .NET build was ~130 MB.)
@@ -19,9 +21,9 @@ cargo build --release
 
 ## Layout
 
-- **Left Click** / **Right Click** — per-button configuration (independent)
-- **Sounds** — click-sound packs, custom files, volume
-- **Settings** — accent, startup, tray, panic key, updates
+- **Left Click** / **Right Click**: per-button configuration (independent)
+- **Sounds**: click-sound packs, custom files, volume
+- **Settings**: accent, startup, tray, panic key, updates
 
 ## Credits
 
