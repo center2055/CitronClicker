@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::path::Path;
 
-const REPO: &str = "center2055/Citron-v2";
+const REPO: &str = "center2055/CitronClicker";
 const UA: &str = "Citron-v2-updater";
 
 #[derive(serde::Deserialize)]
