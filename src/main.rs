@@ -13,6 +13,7 @@ mod audio;
 mod engine;
 mod os;
 mod tray;
+mod update;
 
 use engine::{ClickerSnap, EngineConfig, EngineHandle, ToggleReq};
 
@@ -430,6 +431,12 @@ impl CitronApp {
             if let Some(cfg) = eframe::get_value::<Config>(storage, "config") {
                 app.apply(cfg);
             }
+        }
+        // clear any leftover from a prior update, then (if enabled) silently check for a newer
+        // release in the background — it stages over this exe for the next launch.
+        update::startup_cleanup();
+        if app.autoupdate {
+            update::spawn_check();
         }
         app
     }
