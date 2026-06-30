@@ -1,7 +1,7 @@
 //! timing math: xoshiro256** rng, the humanized delay generator, the fixed (humanize-off)
 //! period, and smooth jitter. all delays in ms; get_delays returns (up, down).
 
-use std::f64::consts::{PI, TAU};
+use std::f64::consts::TAU;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_CPS_UI: f64 = 20.0;
@@ -59,6 +59,13 @@ impl Rng {
             lo + (self.next_u64() % ((hi - lo) as u64)) as i32
         }
     }
+
+    /// standard normal (mean 0, std 1) via Box-Muller
+    pub fn gaussian(&mut self) -> f64 {
+        let u1 = 1.0 - self.unit();
+        let u2 = 1.0 - self.unit();
+        (-2.0 * u1.ln()).sqrt() * (TAU * u2).sin()
+    }
 }
 
 /// humanized click timing. returns (up_ms, down_ms). cps is sampled weighted by rate so the
@@ -96,23 +103,37 @@ impl HumanizedDelay {
         }
         let target_period = 1000.0 / sample_cps;
 
-        let u1 = 1.0 - rng.unit();
-        let u2 = 1.0 - rng.unit();
-        let std_normal = (-2.0 * u1.ln()).sqrt() * (2.0 * PI * u2).sin();
+        // slow drift as a mean-reverting random walk (Ornstein-Uhlenbeck), not a sine. a sine has a
+        // fixed period that recurrence / independence tests (BDS and friends) can lock onto; an OU
+        // walk wanders aperiodically while staying correlated across ~30 clicks, which is what a
+        // human's gradual speed-up / slow-down actually looks like. mean 0, so the long-run rate is
+        // unchanged. stationary std ~0.05, clamped to keep the swing subtle.
+        self.drift = self.drift * 0.97 + rng.gaussian() * 0.012;
+        let drift_factor = 1.0 + self.drift.clamp(-0.06, 0.06);
 
-        self.drift += 0.1;
-        if self.drift > TAU {
-            self.drift -= TAU; // keep sin() sane over long runs
-        }
-        let drift_factor = 1.0 + self.drift.sin() * 0.04;
-        let jitter = (1.0 + std_normal * 0.05).clamp(0.93, 1.07);
+        let jitter = (1.0 + rng.gaussian() * 0.05).clamp(0.93, 1.07);
         let mut period = target_period * drift_factor * jitter;
 
-        // clamp the core period to the range so the bulk stays in bounds and the average holds.
-        // (old 50ms tick-snapping is gone — it skewed the average and could overshoot max.)
+        // clamp the core period to the configured range so the bulk stays in bounds and the average
+        // holds — but keep a minimum window so a single / very narrow cps still gets humanized
+        // instead of collapsing to a robotic constant interval (drift and jitter would otherwise be
+        // clamped flat, which is the single most detectable pattern there is).
         let min_period = 1000.0 / eff_max; // fastest
         let max_period = 1000.0 / eff_min; // slowest
-        period = period.clamp(min_period, max_period);
+        let center = (min_period + max_period) * 0.5;
+        let half = ((max_period - min_period) * 0.5).max(center * 0.08);
+        let (lo_b, hi_b) = (center - half, center + half);
+        if period > hi_b || period < lo_b {
+            // dither a hair inside the edge instead of pinning every overshoot to the exact wall — a
+            // hard clamp piles a botlike probability spike on the boundary; spread it over a thin
+            // band just inside instead.
+            let band = (hi_b - lo_b) * 0.04;
+            period = if period > hi_b {
+                hi_b - rng.unit() * band
+            } else {
+                lo_b + rng.unit() * band
+            };
+        }
 
         // tails, after the clamp so they survive (clamping first = hard wall, no tail, botlike).
         // a few clicks drift past the edges: a brief hesitation (slow) or a quick flick (fast).
@@ -211,6 +232,31 @@ mod tests {
                 err * 100.0
             );
         }
+    }
+
+    #[test]
+    fn single_cps_has_serial_dependence() {
+        // the OU drift gives consecutive intervals a human-like correlation (gradual speed-up /
+        // slow-down) instead of being independent click-to-click. at a single cps the drift is the
+        // dominant source of variation, so lag-1 autocorrelation should be clearly positive. (the
+        // old sine drift was correlated too — but periodic; the point of OU is that it's aperiodic.)
+        let mut rng = Rng::seeded(0x5EED_0);
+        let mut hd = HumanizedDelay::new();
+        let n = 50_000usize;
+        let mut p = Vec::with_capacity(n);
+        for _ in 0..n {
+            let (up, down) = hd.get_delays(13.0, 13.0, &mut rng);
+            p.push(up + down);
+        }
+        let mean = p.iter().sum::<f64>() / n as f64;
+        let var = p.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n as f64;
+        let cov1 =
+            (0..n - 1).map(|i| (p[i] - mean) * (p[i + 1] - mean)).sum::<f64>() / (n - 1) as f64;
+        let autocorr = cov1 / var;
+        assert!(
+            autocorr > 0.1,
+            "expected positive serial correlation from drift, got {autocorr:.3}"
+        );
     }
 
     #[test]

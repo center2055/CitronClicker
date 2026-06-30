@@ -29,6 +29,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     TranslateMessage, UnhookWindowsHookEx, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_QUIT,
     WM_RBUTTONDOWN, WM_RBUTTONUP,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GWL_EXSTYLE, GetWindowLongW, SW_HIDE, SW_SHOW, SetWindowDisplayAffinity, SetWindowLongW,
+    WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+};
 
 static PHYS_LMB: AtomicBool = AtomicBool::new(false);
 static PHYS_RMB: AtomicBool = AtomicBool::new(false);
@@ -217,6 +221,51 @@ pub fn focus_existing_window() {
         if !hwnd.is_null() {
             ShowWindow(hwnd, SW_RESTORE);
             SetForegroundWindow(hwnd);
+        }
+    }
+}
+
+/// our own top-level window, found by title (same handle focus_existing_window uses)
+fn self_hwnd() -> HWND {
+    let title: Vec<u16> = "Citron v2\0".encode_utf16().collect();
+    unsafe { FindWindowW(ptr::null(), title.as_ptr()) }
+}
+
+/// hide (or restore) the window from screen capture / screen-share. WDA_EXCLUDEFROMCAPTURE (0x11,
+/// win10 2004+) keeps it on-screen for the user but blanks it out of any capture; WDA_NONE (0)
+/// restores normal capture. silently no-ops on older windows (the call just fails).
+pub fn set_screen_capture_excluded(excluded: bool) {
+    let hwnd = self_hwnd();
+    if hwnd.is_null() {
+        return;
+    }
+    unsafe {
+        SetWindowDisplayAffinity(hwnd, if excluded { 0x11 } else { 0x00 });
+    }
+}
+
+/// hide (or restore) the taskbar button by flipping WS_EX_TOOLWINDOW/WS_EX_APPWINDOW. the shell only
+/// re-reads that style when the window is shown, so re-show it — but only if it was already visible,
+/// so toggling this from the tray while we're tucked away doesn't pop the window back open.
+pub fn set_taskbar_hidden(hidden: bool) {
+    let hwnd = self_hwnd();
+    if hwnd.is_null() {
+        return;
+    }
+    unsafe {
+        let visible = IsWindowVisible(hwnd) != 0;
+        if visible {
+            ShowWindow(hwnd, SW_HIDE);
+        }
+        let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        let ex = if hidden {
+            (ex & !(WS_EX_APPWINDOW as i32)) | WS_EX_TOOLWINDOW as i32
+        } else {
+            (ex & !(WS_EX_TOOLWINDOW as i32)) | WS_EX_APPWINDOW as i32
+        };
+        SetWindowLongW(hwnd, GWL_EXSTYLE, ex);
+        if visible {
+            ShowWindow(hwnd, SW_SHOW);
         }
     }
 }

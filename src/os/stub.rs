@@ -38,3 +38,5 @@ pub fn set_autostart(_enabled: bool) {}
 pub fn foreground_is_self() -> bool {
     false
 }
+pub fn set_screen_capture_excluded(_excluded: bool) {}
+pub fn set_taskbar_hidden(_hidden: bool) {}

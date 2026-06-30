@@ -22,6 +22,9 @@ pub struct EngineSignals {
     pub mc_running: AtomicBool,
     pub any_focused: AtomicBool,
     pub running: AtomicBool,
+    /// taskbar-hide toggle state. flipped by the bound key here and by the ui/tray; whoever flips it
+    /// also does the os apply, this is just the shared truth both sides read.
+    pub taskbar_hidden: AtomicBool,
     /// set while a rebind is armed — fully pauses the engine so the key being bound doesn't also
     /// toggle or click
     pub capturing: AtomicBool,
@@ -57,6 +60,7 @@ pub struct EngineConfig {
     pub left: ClickerSnap,
     pub right: ClickerSnap,
     pub panic_vk: i32,
+    pub taskbar_vk: i32,
     pub audio: AudioConfig,
 }
 
@@ -90,6 +94,7 @@ impl EngineHandle {
             mc_running: AtomicBool::new(false),
             any_focused: AtomicBool::new(false),
             running: AtomicBool::new(true),
+            taskbar_hidden: AtomicBool::new(false),
             capturing: AtomicBool::new(false),
         });
         let config = Arc::new(Mutex::new(initial));
@@ -148,6 +153,7 @@ pub fn vk_from_name(name: &str) -> i32 {
         "alt" => 0x12,
         "tab" => 0x09,
         "caps lock" | "capslock" | "caps" => 0x14,
+        "insert" => 0x2D,
         _ => {
             if n.chars().count() == 1 {
                 let ch = n.chars().next().unwrap().to_ascii_uppercase();
@@ -374,6 +380,7 @@ fn key_poll_loop(
     let mut left_was = true; // need a release before the first edge counts
     let mut right_was = true;
     let mut panic_was = true;
+    let mut taskbar_was = true;
     let mut last_focus = Instant::now()
         .checked_sub(Duration::from_secs(1))
         .unwrap_or_else(Instant::now);
@@ -385,6 +392,7 @@ fn key_poll_loop(
             left_was = true;
             right_was = true;
             panic_was = true;
+            taskbar_was = true;
             sig.suspend_left.store(false, Ordering::Relaxed);
             sig.suspend_right.store(false, Ordering::Relaxed);
             thread::sleep(Duration::from_millis(10));
@@ -423,6 +431,21 @@ fn key_poll_loop(
                 ctx.request_repaint();
             }
             panic_was = p;
+        }
+
+        // taskbar-hide hotkey: edge-toggle the shared flag and apply it straight to the window here
+        // (must work while the game is focused and our ui isn't repainting, like the clicker toggle).
+        if snap.taskbar_vk != 0 {
+            let p = os::key_held(snap.taskbar_vk);
+            if p && !taskbar_was {
+                let now = !sig.taskbar_hidden.load(Ordering::Relaxed);
+                sig.taskbar_hidden.store(now, Ordering::Relaxed);
+                os::set_taskbar_hidden(now);
+                ctx.request_repaint();
+            }
+            taskbar_was = p;
+        } else {
+            taskbar_was = true;
         }
 
         if last_focus.elapsed() >= Duration::from_millis(150) {

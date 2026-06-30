@@ -218,10 +218,15 @@ enum BindSlot {
 enum RebindTarget {
     Clicker { is_left: bool, slot: BindSlot },
     Panic,
+    Taskbar,
 }
 
 fn default_panic_key() -> String {
     "F8".into()
+}
+
+fn default_taskbar_key() -> String {
+    "Insert".into()
 }
 
 #[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
@@ -272,6 +277,10 @@ struct Config {
     #[serde(default = "default_panic_key")]
     panic_key: String,
     #[serde(default)]
+    screen_hide: bool,
+    #[serde(default = "default_taskbar_key")]
+    taskbar_key: String,
+    #[serde(default)]
     custom_wav: Option<std::path::PathBuf>,
 }
 
@@ -312,6 +321,9 @@ struct CitronApp {
     btc_copied: Option<std::time::Instant>,
     tray_applied: Option<bool>,
     autostart_applied: Option<bool>,
+    screen_hide: bool,
+    taskbar_key: String,
+    screen_applied: Option<bool>,
 }
 
 fn snap_of(ck: &Clicker, is_left: bool) -> ClickerSnap {
@@ -378,6 +390,7 @@ impl CitronApp {
                 left: snap_of(&left, true),
                 right: snap_of(&right, false),
                 panic_vk: engine::vk_from_name("F8"),
+                taskbar_vk: engine::vk_from_name("Insert"),
                 audio: engine::AudioConfig {
                     enabled: true,
                     volume: 0.70,
@@ -426,6 +439,9 @@ impl CitronApp {
             btc_copied: None,
             tray_applied: None,
             autostart_applied: None,
+            screen_hide: false,
+            taskbar_key: "Insert".into(),
+            screen_applied: None,
         };
         if let Some(storage) = cc.storage {
             if let Some(cfg) = eframe::get_value::<Config>(storage, "config") {
@@ -456,6 +472,8 @@ impl CitronApp {
             tray: self.tray,
             autoupdate: self.autoupdate,
             panic_key: self.panic_key.clone(),
+            screen_hide: self.screen_hide,
+            taskbar_key: self.taskbar_key.clone(),
             custom_wav: self.custom_wav.clone(),
         }
     }
@@ -474,6 +492,8 @@ impl CitronApp {
         self.tray = c.tray;
         self.autoupdate = c.autoupdate;
         self.panic_key = c.panic_key;
+        self.screen_hide = c.screen_hide;
+        self.taskbar_key = c.taskbar_key;
         self.custom_wav = c.custom_wav;
         self.last_pack = self.pack;
         // reload a saved custom sound, fall back to default if it's gone/bad
@@ -499,6 +519,7 @@ impl CitronApp {
             left: snap_of(&self.left, true),
             right: snap_of(&self.right, false),
             panic_vk: engine::vk_from_name(&self.panic_key),
+            taskbar_vk: engine::vk_from_name(&self.taskbar_key),
             audio: engine::AudioConfig {
                 enabled: self.sounds_on,
                 volume: self.volume / 100.0,
@@ -590,6 +611,15 @@ impl CitronApp {
         // behind the game, and tray menu clicks must still be handled
         if self.tray && self.tray_mgr.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(150));
+        }
+    }
+
+    // screenshare exclusion: a plain ui toggle applied here. taskbar hide is hotkey-only and gets
+    // applied on the engine thread (so it works while the game is focused), so it isn't handled here.
+    fn apply_window_features(&mut self, _ctx: &egui::Context) {
+        if self.screen_applied != Some(self.screen_hide) {
+            os::set_screen_capture_excluded(self.screen_hide);
+            self.screen_applied = Some(self.screen_hide);
         }
     }
 
@@ -1004,6 +1034,7 @@ fn key_name(k: egui::Key) -> Option<&'static str> {
         Escape => "None",
         Space => "Space",
         Tab => "Tab",
+        Insert => "Insert",
         A => "A", B => "B", C => "C", D => "D", E => "E", F => "F", G => "G", H => "H",
         I => "I", J => "J", K => "K", L => "L", M => "M", N => "N", O => "O", P => "P",
         Q => "Q", R => "R", S => "S", T => "T", U => "U", V => "V", W => "W", X => "X",
@@ -1111,6 +1142,7 @@ impl eframe::App for CitronApp {
                         }
                     }
                     RebindTarget::Panic => self.panic_key = name,
+                    RebindTarget::Taskbar => self.taskbar_key = name,
                 }
                 self.rebind = None;
             }
@@ -1155,6 +1187,7 @@ impl eframe::App for CitronApp {
 
         self.sync_system(&ctx);
         self.tray_menu_popup(&ctx);
+        self.apply_window_features(&ctx);
 
         if self.saved.as_ref() != Some(&self.snapshot()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(1100));
@@ -1486,6 +1519,9 @@ impl CitronApp {
         let panic_listening = self.rebind == Some(RebindTarget::Panic);
         let panic_label = self.panic_key.clone();
         let mut arm_panic = false;
+        let taskbar_listening = self.rebind == Some(RebindTarget::Taskbar);
+        let taskbar_label = self.taskbar_key.clone();
+        let mut arm_taskbar = false;
         card().show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -1549,6 +1585,33 @@ impl CitronApp {
         );
         if arm_panic {
             self.rebind = Some(RebindTarget::Panic);
+            self.rebind_armed_at = ui.ctx().cumulative_frame_nr();
+        }
+        ui.add_space(10.0);
+        two_col(
+            ui,
+            |ui| {
+                option_row(
+                    ui,
+                    ic::EYE_OFF,
+                    "Hide from capture",
+                    "Invisible to screen share",
+                    accent,
+                    |ui| {
+                        toggle(ui, &mut self.screen_hide, accent);
+                    },
+                )
+            },
+            |ui| {
+                option_row(ui, ic::KEYBOARD, "Taskbar hide key", "Toggles taskbar", accent, |ui| {
+                    if bind_chip(ui, &taskbar_label, taskbar_listening, accent) {
+                        arm_taskbar = true;
+                    }
+                })
+            },
+        );
+        if arm_taskbar {
+            self.rebind = Some(RebindTarget::Taskbar);
             self.rebind_armed_at = ui.ctx().cumulative_frame_nr();
         }
 
