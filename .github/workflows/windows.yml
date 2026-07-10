@@ -1,0 +1,47 @@
+name: windows-release
+
+# Builds the Windows release exe with the full MSVC toolchain on GitHub's runners
+# (icon embedded, ~18 MB, standalone) and publishes it as a GitHub release.
+# Push a version tag (e.g. v2.2.0) to build + publish; or run manually to just build.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build
+        run: cargo build --release
+
+      - name: stage exe
+        run: Copy-Item target\release\citron_v2.exe citron_v2.exe
+
+      - name: upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: citron_v2-exe
+          path: citron_v2.exe
+
+      - name: publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: citron_v2.exe
+          body: |
+            ## What's new in ${{ github.ref_name }}
+
+            - **AFK mode** — a new per-clicker toggle (Left Click / Right Click tabs) that clicks continuously while enabled, without holding the mouse button. Handy for afk farming. It still respects only-in-game, avoid GUI, the suspend key, and the panic key.
+            - Updated the Discord invite link.
+
+            Download `citron_v2.exe` and run it. If you're on an older build with auto-update on, you'll get this one automatically.

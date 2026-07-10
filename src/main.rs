@@ -63,7 +63,7 @@ fn main() -> eframe::Result {
     }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([720.0, 730.0])
+            .with_inner_size([720.0, 800.0])
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)
@@ -73,9 +73,9 @@ fn main() -> eframe::Result {
         // restored geometry. config still auto-saves separately.
         persist_window: false,
         window_builder: Some(Box::new(|vb| {
-            vb.with_inner_size([720.0, 730.0])
-                .with_min_inner_size([720.0, 730.0])
-                .with_max_inner_size([720.0, 730.0])
+            vb.with_inner_size([720.0, 800.0])
+                .with_min_inner_size([720.0, 800.0])
+                .with_max_inner_size([720.0, 800.0])
         })),
         ..Default::default()
     };
@@ -258,6 +258,8 @@ struct Clicker {
     #[serde(default = "default_jitter_strength")]
     jitter_strength: i32,
     only_ingame: bool,
+    #[serde(default)]
+    afk: bool,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -337,6 +339,7 @@ fn snap_of(ck: &Clicker, is_left: bool) -> ClickerSnap {
         jitter: ck.jitter,
         jitter_intensity: ck.jitter_strength,
         only_ingame: ck.only_ingame,
+        afk: ck.afk,
         suspend_vk: engine::vk_from_name(&ck.suspend),
         hotkey_vk: engine::vk_from_name(&ck.hotkey),
         is_left,
@@ -369,6 +372,7 @@ impl CitronApp {
             jitter: false,
             jitter_strength: 2,
             only_ingame: true,
+            afk: false,
         };
         let right = Clicker {
             enabled: false,
@@ -382,6 +386,7 @@ impl CitronApp {
             jitter: false,
             jitter_strength: 2,
             only_ingame: true,
+            afk: false,
         };
         let audio = audio::AudioHandle::spawn();
         let engine = EngineHandle::start(
@@ -1405,6 +1410,10 @@ impl CitronApp {
                 })
             },
         );
+        ui.add_space(10.0);
+        option_row(ui, ic::PLAY, "AFK mode", "Click without holding (for afk farming)", accent, |ui| {
+            toggle(ui, &mut ck.afk, accent);
+        });
 
         if warn {
             self.humanize_warn = Some(is_left);
@@ -1638,7 +1647,7 @@ impl CitronApp {
                     ui,
                     egui::include_image!("../assets/icons/discord.svg"),
                     "Discord",
-                    "https://discord.gg/y3MVspPzKQ",
+                    "https://discord.gg/f7JTg86r8A",
                     accent,
                 );
                 link_chip(

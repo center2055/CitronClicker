@@ -42,6 +42,8 @@ pub struct ClickerSnap {
     pub jitter: bool,
     pub jitter_intensity: i32,
     pub only_ingame: bool,
+    /// afk / no-hold: click continuously while enabled instead of only while the button is held
+    pub afk: bool,
     pub suspend_vk: i32,
     pub hotkey_vk: i32,
     pub is_left: bool,
@@ -207,15 +209,17 @@ impl ClickScheduler {
     }
 }
 
-/// accurate wait that bails early if the engine stops or the button is released
-fn precise_delay(ms: f64, sig: &EngineSignals, is_left: bool) {
+/// accurate wait that bails early if the engine stops or (unless in afk mode) the button is released
+fn precise_delay(ms: f64, sig: &EngineSignals, is_left: bool, require_hold: bool) {
     if ms <= 0.0 {
         return;
     }
     let start = Instant::now();
     let target = Duration::from_secs_f64(ms / 1000.0);
     loop {
-        if !sig.running.load(Ordering::Relaxed) || !os::physical_button_held(is_left) {
+        if !sig.running.load(Ordering::Relaxed)
+            || (require_hold && !os::physical_button_held(is_left))
+        {
             break;
         }
         let elapsed = start.elapsed();
@@ -263,7 +267,9 @@ fn clicker_loop(
         // avoid-gui's cursor check only makes sense in-game (cursor hidden in play, shown in
         // menus). in "any window" mode the cursor is always visible so don't let it block.
         let gui_block = snap.avoid_gui && snap.only_ingame && os::cursor_visible();
-        let phys = os::physical_button_held(is_left);
+        // afk mode drops the hold-to-click requirement: once enabled (and gated by focus/suspend/
+        // avoid-gui), it clicks on its own. otherwise the physical button must be held.
+        let hold = snap.afk || os::physical_button_held(is_left);
         let should = snap.enabled
             && !sig.panic.load(Ordering::Relaxed)
             && !sig.capturing.load(Ordering::Relaxed)
@@ -271,7 +277,7 @@ fn clicker_loop(
             && focus_ok
             && !gui_block
             && !suspend
-            && phys;
+            && hold;
 
         if should {
             if !was_clicking {
@@ -289,13 +295,13 @@ fn clicker_loop(
             if audio_cfg.separate {
                 play_click(&audio, audio_cfg);
             }
-            precise_delay(comp_up, &sig, is_left);
-            if !os::physical_button_held(is_left) {
+            precise_delay(comp_up, &sig, is_left, !snap.afk);
+            if !snap.afk && !os::physical_button_held(is_left) {
                 continue; // released mid-cycle; next loop's else emits the trailing up
             }
             os::click_down(is_left);
             play_click(&audio, audio_cfg);
-            precise_delay(comp_down, &sig, is_left);
+            precise_delay(comp_down, &sig, is_left, !snap.afk);
         } else {
             if was_clicking {
                 os::click_up(is_left);
@@ -339,7 +345,7 @@ fn jitter_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineConf
             && focus_ok
             && !gui_block
             && !suspend
-            && os::physical_button_held(is_left);
+            && (snap.afk || os::physical_button_held(is_left));
         if active {
             if let Some((dx, dy)) = jit.next(snap.jitter_intensity, &mut rng) {
                 os::jitter_move(dx, dy);
