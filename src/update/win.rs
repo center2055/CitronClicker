@@ -22,8 +22,8 @@ pub fn startup_cleanup() {
     }
 }
 
-/// background-check github for a newer release and stage it for the next launch. silent —
-/// every failure path (private repo, no release, no network, bad download) is a no-op.
+/// background-check github for a newer release, stage it for the next launch. every failure
+/// path (private repo, no release, no network, bad download) is a silent no-op.
 pub fn spawn_check() {
     std::thread::spawn(|| {
         let _ = check_and_stage();
@@ -45,7 +45,6 @@ fn check_and_stage() -> Option<()> {
         return None;
     }
 
-    // first .exe asset on the release
     let asset = release
         .assets
         .iter()
@@ -61,8 +60,8 @@ fn check_and_stage() -> Option<()> {
         return None;
     }
 
-    // a running exe can't be overwritten, but it can be renamed: move ours aside, drop the new
-    // one into place. the live process keeps running from the renamed file; next launch is new.
+    // a running exe can't be overwritten but can be renamed: move ours aside, drop the new one
+    // into place. live process keeps running from the renamed file, next launch is new.
     let old_path = exe.with_extension("old");
     let _ = std::fs::remove_file(&old_path);
     if std::fs::rename(&exe, &old_path).is_err() {
@@ -70,7 +69,7 @@ fn check_and_stage() -> Option<()> {
         return None;
     }
     if std::fs::rename(&new_path, &exe).is_err() {
-        let _ = std::fs::rename(&old_path, &exe); // recover — put ours back
+        let _ = std::fs::rename(&old_path, &exe); // recover: put ours back
         let _ = std::fs::remove_file(&new_path);
         return None;
     }

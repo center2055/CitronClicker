@@ -56,7 +56,7 @@ mod ic {
 }
 
 fn main() -> eframe::Result {
-    // single instance only — if one's already running, surface it and bail
+    // single instance only. if one's already running, focus it and bail
     if !os::acquire_single_instance() {
         os::focus_existing_window();
         return Ok(());
@@ -68,9 +68,8 @@ fn main() -> eframe::Result {
             .with_transparent(true)
             .with_resizable(false)
             .with_icon(Arc::new(load_icon())),
-        // fixed-size app. eframe always *loads* persisted geometry (persist_window only gates
-        // saving), so force the size in the window_builder hook — it runs last and overrides the
-        // restored geometry. config still auto-saves separately.
+        // eframe always loads persisted geometry (persist_window only gates saving), so force
+        // the size in window_builder: it runs last and overrides the restored geometry.
         persist_window: false,
         window_builder: Some(Box::new(|vb| {
             vb.with_inner_size([720.0, 800.0])
@@ -109,19 +108,17 @@ fn load_icon() -> egui::IconData {
     }
 }
 
-/// build the tray icon at exactly `px` square (the shell's small-icon size) so it draws 1:1
-/// instead of getting rescaled from our full-size source. same lime silhouette as the window icon,
-/// lanczos3-fit and centered.
+/// build the tray icon at exactly `px` square so the shell draws it 1:1 instead of rescaling
+/// our full-size source. same lime silhouette as the window icon.
 fn load_tray_icon(px: u32) -> (Vec<u8>, u32, u32) {
     let img = image::load_from_memory(include_bytes!("../assets/citron_fruit.png"))
         .expect("icon")
         .to_rgba8();
-    // recolor to the brand lime via the source alpha (matches the window icon)
+    // recolor to brand lime via the source alpha
     let mut lime = image::RgbaImage::new(img.width(), img.height());
     for (x, y, p) in img.enumerate_pixels() {
         lime.put_pixel(x, y, image::Rgba([216, 242, 74, p[3]]));
     }
-    // fit into px×px keeping aspect, then center on a transparent square
     let scale = px as f32 / img.width().max(img.height()) as f32;
     let nw = ((img.width() as f32 * scale).round() as u32).max(1);
     let nh = ((img.height() as f32 * scale).round() as u32).max(1);
@@ -131,8 +128,8 @@ fn load_tray_icon(px: u32) -> (Vec<u8>, u32, u32) {
     (canvas.into_raw(), px, px)
 }
 
-/// bake the wordmark to a texture at the exact device-pixel size it'll draw at, so it's 1:1
-/// (crisp like a glyph) instead of mipmap-downscaled (soft). rebaked when the dpi changes.
+/// bake the wordmark at its exact device-pixel draw size so it's crisp 1:1 instead of
+/// mipmap-downscaled. rebaked when the dpi changes.
 fn bake_logo(ctx: &egui::Context, ppp: f32) -> (egui::TextureHandle, f32) {
     let img = image::load_from_memory(include_bytes!("../assets/citron_logo.png"))
         .expect("logo")
@@ -145,7 +142,7 @@ fn bake_logo(ctx: &egui::Context, ppp: f32) -> (egui::TextureHandle, f32) {
         [resized.width() as usize, resized.height() as usize],
         resized.as_raw(),
     );
-    // no mipmaps — already at display res, samples 1:1
+    // no mipmaps, already at display res so it samples 1:1
     let tex = ctx.load_texture("citron_logo", color, egui::TextureOptions::LINEAR);
     (tex, aspect)
 }
@@ -453,8 +450,8 @@ impl CitronApp {
                 app.apply(cfg);
             }
         }
-        // clear any leftover from a prior update, then (if enabled) silently check for a newer
-        // release in the background — it stages over this exe for the next launch.
+        // clear leftovers from a prior update, then maybe check for a newer release in the
+        // background. it stages over this exe for the next launch.
         update::startup_cleanup();
         if app.autoupdate {
             update::spawn_check();
@@ -559,9 +556,8 @@ impl CitronApp {
     }
 
     fn sync_system(&mut self, ctx: &egui::Context) {
-        // intercept os-level closes (alt+f4, taskbar "close window") while close-to-tray is on:
-        // cancel and tuck into the tray instead. `quitting` is the escape hatch the tray's quit
-        // menu sets so a real exit isn't swallowed here.
+        // intercept os-level closes (alt+f4, taskbar close) while close-to-tray is on: cancel and
+        // hide instead. `quitting` lets the tray's quit menu force a real exit through here.
         if !self.quitting
             && self.tray
             && self.tray_mgr.is_some()
@@ -576,12 +572,10 @@ impl CitronApp {
                 self.hidden = true;
             }
         }
-        // autostart: apply on first frame and whenever the toggle changes
         if self.autostart_applied != Some(self.start_system) {
             os::set_autostart(self.start_system);
             self.autostart_applied = Some(self.start_system);
         }
-        // tray icon visibility follows the toggle
         if self.tray_applied != Some(self.tray) {
             if let Some(t) = &self.tray_mgr {
                 t.set_visible(self.tray);
@@ -592,7 +586,7 @@ impl CitronApp {
             }
             self.tray_applied = Some(self.tray);
         }
-        // handle tray clicks (poll returns an owned action so no borrow is held)
+        // poll returns an owned action so no tray_mgr borrow is held across the match
         let action = self.tray_mgr.as_ref().and_then(|t| t.poll());
         match action {
             Some(tray::TrayAction::Show) => {
@@ -612,15 +606,15 @@ impl CitronApp {
             }
             None => {}
         }
-        // keep polling the tray while its icon is up — the window may be hidden, minimized, or
-        // behind the game, and tray menu clicks must still be handled
+        // keep polling the tray while its icon is up: the window may be hidden or behind the
+        // game, and tray menu clicks must still be handled
         if self.tray && self.tray_mgr.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(150));
         }
     }
 
-    // screenshare exclusion: a plain ui toggle applied here. taskbar hide is hotkey-only and gets
-    // applied on the engine thread (so it works while the game is focused), so it isn't handled here.
+    // screenshare exclusion is a plain toggle applied here. taskbar hide is hotkey-only and runs
+    // on the engine thread (so it works while the game is focused), so it's not handled here.
     fn apply_window_features(&mut self, _ctx: &egui::Context) {
         if self.screen_applied != Some(self.screen_hide) {
             os::set_screen_capture_excluded(self.screen_hide);
@@ -628,10 +622,9 @@ impl CitronApp {
         }
     }
 
-    // our own themed tray menu. it's a viewport, kept alive only while it's open OR while the
-    // window is hidden in the tray — so dismissing it never destroys a window under a hidden root
-    // (that exited the app before). when the main window is in normal use the popup doesn't exist
-    // at all, so its per-frame visibility churn can't interfere with the main window's input.
+    // themed tray menu viewport, kept alive only while open or while the window is hidden in the
+    // tray. keeping it absent during normal use avoids its per-frame visibility churn interfering
+    // with the main window's input.
     fn tray_menu_popup(&mut self, ctx: &egui::Context) {
         let needed = self.tray
             && self.tray_mgr.is_some()
@@ -640,8 +633,7 @@ impl CitronApp {
             return;
         }
         let open = self.tray_menu.is_some();
-        // tray sits bottom-right: pop up-left of the cursor with a small gap so the cursor isn't
-        // sitting on an item. parked off-screen while closed.
+        // tray sits bottom-right, so pop up-left of the cursor. parked off-screen while closed.
         let pos = match self.tray_menu {
             Some(c) => egui::pos2((c.x - 188.0).max(4.0), (c.y - 84.0).max(4.0)),
             None => egui::pos2(-2000.0, -2000.0),
@@ -781,7 +773,6 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()))
 }
 
-// one row of the themed tray menu: icon + label, accent-highlighted on hover
 fn tray_menu_item(ui: &mut egui::Ui, glyph: char, label: &str, accent: Color32) -> bool {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 30.0), Sense::click());
     let hov = resp.hovered();
@@ -818,7 +809,7 @@ fn toggle(ui: &mut egui::Ui, on: &mut bool, accent: Color32) -> egui::Response {
     resp
 }
 
-// cps without a trailing .0 — whole numbers show "13", decimals show "13.5"
+// cps without a trailing .0: 13, but 13.5 keeps its decimal
 fn fmt_cps(v: f32) -> String {
     if (v - v.round()).abs() < 0.05 {
         format!("{}", v.round() as i32)
@@ -931,7 +922,6 @@ fn avg_pill(ui: &mut egui::Ui, avg_value: f32, accent: Color32) {
     p.galley(Pos2::new(x, cy - val_sz.y / 2.0), g_val, accent);
 }
 
-// a clickable chip: official svg icon + label, opens `url` in the browser
 fn link_chip(ui: &mut egui::Ui, src: egui::ImageSource<'static>, label: &str, url: &str, accent: Color32) {
     let r = egui::Frame::default()
         .fill(PANEL2)
@@ -951,7 +941,6 @@ fn link_chip(ui: &mut egui::Ui, src: egui::ImageSource<'static>, label: &str, ur
     resp.on_hover_cursor(egui::CursorIcon::PointingHand);
 }
 
-// small text button (used for the BTC copy action)
 fn mini_btn(ui: &mut egui::Ui, label: &str, accent: Color32) -> bool {
     let font = FontId::new(11.5, egui::FontFamily::Name("semibold".into()));
     let g = ui.painter().layout_no_wrap(label.to_string(), font, accent);
@@ -1007,7 +996,7 @@ fn option_row(
     });
 }
 
-/// clickable keybind pill. shows "press a key…" while listening. returns clicked.
+/// keybind pill. shows "press a key…" while listening.
 fn bind_chip(ui: &mut egui::Ui, label: &str, listening: bool, accent: Color32) -> bool {
     let txt = if listening { "Press a key\u{2026}" } else { label };
     let font = FontId::new(12.5, egui::FontFamily::Name("semibold".into()));
@@ -1102,9 +1091,8 @@ impl eframe::App for CitronApp {
             StrokeKind::Inside,
         );
 
-        // drag the window from empty space. added before the panels so it sits under every widget
-        // — clicks on toggles/sliders/tabs hit those first; a drag on empty space falls through
-        // here and moves the window.
+        // window drag from empty space. added before the panels so widgets take clicks first; a
+        // drag on empty space falls through here and moves the window.
         let win_drag = ui.interact(win, egui::Id::new("window_drag"), Sense::click_and_drag());
         if win_drag.drag_started() && self.rebind.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
@@ -1133,7 +1121,7 @@ impl eframe::App for CitronApp {
                 }
                 None
             });
-            // caps lock has no egui key event — poll it directly (skip the arming frame)
+            // caps lock has no egui key event, poll it directly (skip the arming frame)
             if captured.is_none() && this_frame != armed_at && os::key_held(0x14) {
                 captured = Some("Caps Lock".to_string());
             }
@@ -1224,9 +1212,8 @@ impl CitronApp {
                     );
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        // with "close to tray" on, the x tucks into the tray instead of quitting
-                        // (exit via the tray's quit menu). minimize always does a normal taskbar
-                        // minimize.
+                        // with close-to-tray on, the x hides to the tray instead of quitting
+                        // (exit via the tray menu). minimize is always a normal taskbar minimize.
                         let to_tray = self.tray && self.tray_mgr.is_some();
                         if win_btn(ui, ic::CLOSE).clicked() {
                             if to_tray {
@@ -1390,8 +1377,8 @@ impl CitronApp {
         two_col(
             ui,
             |ui| {
-                // jitter on -> a compact strength slider sits left of the toggle (no extra row, so
-                // the fixed-height window never overflows)
+                // jitter on: strength slider sits left of the toggle, no extra row so the
+                // fixed-height window can't overflow
                 option_row(ui, ic::ACTIVITY, "Jitter", "Aim shake", accent, |ui| {
                     toggle(ui, &mut ck.jitter, accent);
                     if ck.jitter {
@@ -1692,8 +1679,8 @@ impl CitronApp {
         let accent = self.accent;
         let mut keep = false;
         let mut disable = false;
-        // egui::Modal owns the backdrop + keeps its content the top interactable layer, so a
-        // click on the dim area can't bury the buttons (the old two-Area scrim+card could).
+        // egui::Modal keeps its content the top interactable layer, so a click on the dim area
+        // can't bury the buttons (the old scrim+card approach could).
         let resp = egui::Modal::new(egui::Id::new("hz_modal"))
             .frame(
                 egui::Frame::default()

@@ -1,5 +1,4 @@
-//! autoclicker engine: background threads that click while the user physically holds the button.
-//! the ui thread owns the config and pushes a snapshot here each frame.
+//! background click threads; the ui pushes a config snapshot each frame.
 
 pub mod timing;
 
@@ -12,8 +11,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use timing::{HumanizedDelay, Rng, SmoothJitter, fixed_delays};
 
-/// hot lock-free flags shared with the threads. relaxed ordering — advisory gates, not syncing
-/// other memory.
+/// lock-free flags shared with the threads. relaxed ordering: advisory gates, not syncing memory.
 pub struct EngineSignals {
     pub suspend_left: AtomicBool,
     pub suspend_right: AtomicBool,
@@ -22,11 +20,9 @@ pub struct EngineSignals {
     pub mc_running: AtomicBool,
     pub any_focused: AtomicBool,
     pub running: AtomicBool,
-    /// taskbar-hide toggle state. flipped by the bound key here and by the ui/tray; whoever flips it
-    /// also does the os apply, this is just the shared truth both sides read.
+    /// taskbar-hide state. whoever flips it also does the os apply; this is just the shared truth.
     pub taskbar_hidden: AtomicBool,
-    /// set while a rebind is armed — fully pauses the engine so the key being bound doesn't also
-    /// toggle or click
+    /// set while a rebind is armed: pauses the engine so the bound key doesn't also toggle or click
     pub capturing: AtomicBool,
 }
 
@@ -175,8 +171,7 @@ pub fn vk_from_name(name: &str) -> i32 {
     }
 }
 
-/// time-accumulation scheduler: keeps the long-run rate accurate by compensating each cycle for
-/// dispatch jitter. returns (comp_up, comp_down).
+/// keeps the long-run rate accurate by compensating each cycle for dispatch jitter.
 struct ClickScheduler {
     start: Instant,
     next_expected: f64,
@@ -316,8 +311,8 @@ fn clicker_loop(
     }
 }
 
-// continuous aim-shake while the button is physically held in-game. own ~100hz loop (not tied to
-// the click rate) so the sine path is smooth — gated the same as clicking.
+// aim-shake while the button is held in-game. own ~100hz loop (not the click rate) so the sine
+// path stays smooth. gated the same as clicking.
 fn jitter_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineConfig>>) {
     let mut rng = Rng::seeded(if is_left { 0xC17 } else { 0xD29 });
     let mut jit = SmoothJitter::new();
@@ -416,9 +411,9 @@ fn key_poll_loop(
             Ordering::Relaxed,
         );
 
-        // flip the live config right here so the clicker stops/starts instantly — don't wait on a
-        // ui frame (citron is usually occluded behind the game, where request_repaint may not paint,
-        // which is why a toggle-off sometimes didn't take). the ToggleReq just syncs the ui widget.
+        // flip the live config here so the clicker stops/starts instantly, without waiting on a ui
+        // frame: citron is usually occluded behind the game where request_repaint may not paint, so
+        // a toggle-off sometimes didn't take. the ToggleReq just syncs the ui widget.
         edge(snap.left.hotkey_vk, &mut left_was, || {
             cfg.lock().unwrap().left.enabled ^= true;
             let _ = tx.send(ToggleReq::Left);
@@ -432,15 +427,15 @@ fn key_poll_loop(
         if snap.panic_vk != 0 {
             let p = os::key_held(snap.panic_vk);
             if p && !panic_was {
-                sig.panic.store(true, Ordering::Relaxed); // stop clicking now
+                sig.panic.store(true, Ordering::Relaxed);
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close); // panic = quit
                 ctx.request_repaint();
             }
             panic_was = p;
         }
 
-        // taskbar-hide hotkey: edge-toggle the shared flag and apply it straight to the window here
-        // (must work while the game is focused and our ui isn't repainting, like the clicker toggle).
+        // edge-toggle the shared flag and apply straight to the window here (must work while the
+        // game is focused and our ui isn't repainting, like the clicker toggle).
         if snap.taskbar_vk != 0 {
             let p = os::key_held(snap.taskbar_vk);
             if p && !taskbar_was {

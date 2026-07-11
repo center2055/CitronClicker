@@ -7,7 +7,7 @@ pub struct TrayManager {
 
 impl TrayManager {
     pub fn new(rgba: Vec<u8>, w: u32, h: u32) -> Option<TrayManager> {
-        // no native menu — we draw our own themed one on right-click (see main.rs)
+        // no native menu, we draw our own themed one on right-click (see main.rs)
         let icon = Icon::from_rgba(rgba, w, h).ok()?;
         let tray = TrayIconBuilder::new()
             .with_tooltip("Citron v2")

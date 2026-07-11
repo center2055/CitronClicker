@@ -1,5 +1,5 @@
-//! silent self-updater. checks github releases and stages a newer build to take effect on the
-//! next launch. windows-only (the in-place exe swap); a no-op stub elsewhere.
+//! silent self-updater. checks github releases, stages a newer build for the next launch.
+//! windows-only (in-place exe swap), no-op stub elsewhere.
 
 #[cfg(windows)]
 mod win;

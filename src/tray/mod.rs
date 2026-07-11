@@ -1,6 +1,5 @@
-//! system tray icon. real on windows (tray-icon crate), no-op stub elsewhere so it builds
-//! everywhere. the icon lives on the main (event-loop) thread; events get polled each frame via
-//! poll().
+//! system tray icon. real on windows, no-op stub elsewhere. icon lives on the event-loop thread,
+//! events polled each frame via poll().
 
 #[cfg(windows)]
 mod win;
@@ -14,6 +13,6 @@ pub use stub::*;
 
 pub enum TrayAction {
     Show,
-    /// right-click — open our own themed menu at this screen position (physical px)
+    /// right-click: open our themed menu at this screen position (physical px)
     Menu { x: f64, y: f64 },
 }

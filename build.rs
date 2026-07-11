@@ -1,4 +1,3 @@
-// embed the citron icon into the exe (windows only)
 fn main() {
     #[cfg(windows)]
     {

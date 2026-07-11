@@ -1,6 +1,5 @@
-//! windows input: synthetic clicks via sendinput, physical-hold detection via a wh_mouse_ll hook
-//! on its own pump thread (filters injected events so our clicks don't count), mc/foreground
-//! detection, cursor + key state.
+//! windows input backend: sendinput clicks, a wh_mouse_ll hook for physical-hold detection, plus
+//! mc/foreground detection.
 
 use std::ptr;
 use std::sync::Mutex;
@@ -53,7 +52,7 @@ pub fn small_icon_px() -> u32 {
     if s <= 0 { 16 } else { s as u32 }
 }
 
-/// low-level mouse hook. runs on the pump thread — must never block/alloc/panic. only physical
+/// low-level mouse hook. runs on the pump thread, must never block/alloc/panic. only physical
 /// (non-injected) events touch the flags so our own clicks don't feed back.
 unsafe extern "system" fn ll_mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 && lparam != 0 {
@@ -112,7 +111,7 @@ pub fn physical_button_held(is_left: bool) -> bool {
             PHYS_RMB.load(Ordering::Relaxed)
         }
     } else {
-        // before the hook is up (or on failure) — nothing injecting yet to confuse us
+        // before the hook is up (or on failure); nothing injecting yet to confuse us
         let vk = if is_left { 0x01 } else { 0x02 };
         unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
     }
@@ -132,7 +131,7 @@ fn send_mouse(flags: u32, dx: i32, dy: i32) {
             },
         },
     };
-    // serialize every sendinput (both clickers + jitter) — interleaved injection breaks
+    // serialize every sendinput (both clickers + jitter): interleaved injection breaks
     // uwp/bedrock. held only around the call, never across a delay.
     let _g = SEND_LOCK.lock().unwrap();
     unsafe {
@@ -196,14 +195,14 @@ pub fn any_window_focused() -> bool {
 }
 
 /// true if we're the first instance. holds a named mutex for the whole process so a second launch
-/// can detect us. the handle leaks on purpose — the os frees the mutex when we exit (even on a
+/// can detect us. the handle leaks on purpose: the os frees the mutex when we exit (even on a
 /// hard kill), so the next launch starts clean.
 pub fn acquire_single_instance() -> bool {
     let name: Vec<u16> = "Citron_v2_single_instance\0".encode_utf16().collect();
     unsafe {
         let h = CreateMutexW(ptr::null(), 1, name.as_ptr());
         if h.is_null() {
-            return true; // couldn't create one — don't block startup
+            return true; // couldn't create one, don't block startup
         }
         if GetLastError() == ERROR_ALREADY_EXISTS {
             CloseHandle(h);
@@ -225,7 +224,6 @@ pub fn focus_existing_window() {
     }
 }
 
-/// our own top-level window, found by title (same handle focus_existing_window uses)
 fn self_hwnd() -> HWND {
     let title: Vec<u16> = "Citron v2\0".encode_utf16().collect();
     unsafe { FindWindowW(ptr::null(), title.as_ptr()) }
@@ -245,7 +243,7 @@ pub fn set_screen_capture_excluded(excluded: bool) {
 }
 
 /// hide (or restore) the taskbar button by flipping WS_EX_TOOLWINDOW/WS_EX_APPWINDOW. the shell only
-/// re-reads that style when the window is shown, so re-show it — but only if it was already visible,
+/// re-reads that style when the window is shown, so re-show it, but only if it was already visible,
 /// so toggling this from the tray while we're tucked away doesn't pop the window back open.
 pub fn set_taskbar_hidden(hidden: bool) {
     let hwnd = self_hwnd();
@@ -293,7 +291,7 @@ pub fn set_autostart(enabled: bool) {
     }
 }
 
-/// true when our own window is focused — so we never click into our own ui
+/// true when our own window is focused, so we never click into our own ui
 pub fn foreground_is_self() -> bool {
     unsafe {
         let hwnd = GetForegroundWindow();
@@ -400,7 +398,7 @@ fn has_render_class(cls: &str) -> bool {
 }
 
 /// true if this window is the actual mc game (not a launcher). handles custom clients (cm client
-/// etc.) — the glfw/lwjgl render class is the strongest signal, checked before any process query.
+/// etc.); the glfw/lwjgl render class is the strongest signal, checked before any process query.
 fn hwnd_is_mc(hwnd: HWND) -> bool {
     if hwnd.is_null() {
         return false;
@@ -426,7 +424,7 @@ fn hwnd_is_mc(hwnd: HWND) -> bool {
     false
 }
 
-/// true when mc is the focused window — gates clicking in "only in-game"
+/// true when mc is the focused window, gates clicking in "only in-game"
 pub fn is_minecraft_active() -> bool {
     let hwnd = unsafe { GetForegroundWindow() };
     hwnd_is_mc(hwnd)
@@ -442,12 +440,12 @@ unsafe extern "system" fn enum_mc(hwnd: HWND, lparam: isize) -> i32 {
     if (has_render_class(&cls) || cls == "bedrock" || title.contains("minecraft")) && hwnd_is_mc(hwnd)
     {
         unsafe { *(lparam as *mut bool) = true };
-        return 0; // found — stop enumerating
+        return 0; // found, stop enumerating
     }
     1
 }
 
-/// true if an mc window exists anywhere (running, even if not focused). for the status badge —
+/// true if an mc window exists anywhere (running, even if not focused). for the status badge,
 /// unlike is_minecraft_active which the clicker uses.
 pub fn is_minecraft_running() -> bool {
     let mut found = false;

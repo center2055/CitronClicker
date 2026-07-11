@@ -1,5 +1,4 @@
-//! timing math: xoshiro256** rng, the humanized delay generator, the fixed (humanize-off)
-//! period, and smooth jitter. all delays in ms; get_delays returns (up, down).
+//! timing math: rng, humanized + fixed delays, smooth jitter. all delays in ms.
 
 use std::f64::consts::TAU;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -68,10 +67,9 @@ impl Rng {
     }
 }
 
-/// humanized click timing. returns (up_ms, down_ms). cps is sampled weighted by rate so the
-/// measured average lands on the [min,max] midpoint, then nudged by a gaussian + slow sine drift.
-/// core period is clamped to the range, then a few clicks get a hesitation/flick past the edges
-/// for natural tails instead of hard walls.
+/// humanized click timing. returns (up_ms, down_ms). cps sampled weighted by rate so the average
+/// lands on the [min,max] midpoint, then nudged by gaussian + slow drift. core period clamped to
+/// range, with a few clicks flicking past the edges for natural tails.
 pub struct HumanizedDelay {
     drift: f64,
 }
@@ -103,30 +101,27 @@ impl HumanizedDelay {
         }
         let target_period = 1000.0 / sample_cps;
 
-        // slow drift as a mean-reverting random walk (Ornstein-Uhlenbeck), not a sine. a sine has a
-        // fixed period that recurrence / independence tests (BDS and friends) can lock onto; an OU
-        // walk wanders aperiodically while staying correlated across ~30 clicks, which is what a
-        // human's gradual speed-up / slow-down actually looks like. mean 0, so the long-run rate is
-        // unchanged. stationary std ~0.05, clamped to keep the swing subtle.
+        // slow drift as a mean-reverting random walk (Ornstein-Uhlenbeck), not a sine: a sine's
+        // fixed period lets recurrence tests (BDS and friends) lock on, while OU wanders
+        // aperiodically but stays correlated across ~30 clicks like a human's gradual speed-up/
+        // slow-down. mean 0 so the long-run rate is unchanged.
         self.drift = self.drift * 0.97 + rng.gaussian() * 0.012;
         let drift_factor = 1.0 + self.drift.clamp(-0.06, 0.06);
 
         let jitter = (1.0 + rng.gaussian() * 0.05).clamp(0.93, 1.07);
         let mut period = target_period * drift_factor * jitter;
 
-        // clamp the core period to the configured range so the bulk stays in bounds and the average
-        // holds — but keep a minimum window so a single / very narrow cps still gets humanized
-        // instead of collapsing to a robotic constant interval (drift and jitter would otherwise be
-        // clamped flat, which is the single most detectable pattern there is).
+        // clamp the core period to the range so the bulk stays in bounds, but keep a minimum window
+        // so a single/narrow cps still gets humanized instead of collapsing to a robotic constant
+        // interval (the single most detectable pattern there is).
         let min_period = 1000.0 / eff_max; // fastest
         let max_period = 1000.0 / eff_min; // slowest
         let center = (min_period + max_period) * 0.5;
         let half = ((max_period - min_period) * 0.5).max(center * 0.08);
         let (lo_b, hi_b) = (center - half, center + half);
         if period > hi_b || period < lo_b {
-            // dither a hair inside the edge instead of pinning every overshoot to the exact wall — a
-            // hard clamp piles a botlike probability spike on the boundary; spread it over a thin
-            // band just inside instead.
+            // dither just inside the edge instead of pinning overshoots to the exact wall; a hard
+            // clamp piles a botlike probability spike on the boundary.
             let band = (hi_b - lo_b) * 0.04;
             period = if period > hi_b {
                 hi_b - rng.unit() * band
@@ -164,7 +159,7 @@ impl HumanizedDelay {
     }
 }
 
-/// fixed (humanize-off) timing — perfectly periodic. more effective, easier to flag.
+/// fixed (humanize-off) timing: perfectly periodic. more effective, easier to flag.
 pub fn fixed_delays(cps: f32) -> (f64, f64) {
     let cps = (cps as f64).clamp(1.0, MAX_CPS_UI);
     let total = 1000.0 / cps;
@@ -221,7 +216,7 @@ mod tests {
 
     #[test]
     fn measured_rate_tracks_midpoint() {
-        // a cps test must read the slider midpoint at any width — 1..20 used to read ~6.3 not 10.5
+        // a cps test must read the slider midpoint at any width; 1..20 used to read ~6.3 not 10.5
         for (min, max) in [(1.0f32, 20.0f32), (5.0, 15.0), (10.0, 12.0), (15.0, 20.0)] {
             let mid = (min + max) as f64 / 2.0;
             let got = measured_cps(min, max, 400_000);
@@ -239,7 +234,7 @@ mod tests {
         // the OU drift gives consecutive intervals a human-like correlation (gradual speed-up /
         // slow-down) instead of being independent click-to-click. at a single cps the drift is the
         // dominant source of variation, so lag-1 autocorrelation should be clearly positive. (the
-        // old sine drift was correlated too — but periodic; the point of OU is that it's aperiodic.)
+        // old sine drift was correlated too, but periodic; the point of OU is that it's aperiodic.)
         let mut rng = Rng::seeded(0x5EED_0);
         let mut hd = HumanizedDelay::new();
         let n = 50_000usize;

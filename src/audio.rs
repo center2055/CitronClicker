@@ -1,6 +1,6 @@
-//! click sounds. a dedicated thread owns the rodio output (it's !Send and stops audio on drop);
-//! everyone else holds a cloneable AudioHandle that sends play requests over a channel.
-//! fire-and-forget — the mixer sums voices so rapid clicks overlap fine.
+//! click sounds. dedicated thread owns the rodio output (!Send, stops on drop); others hold a
+//! cloneable AudioHandle that sends play requests over a channel. mixer sums voices so rapid
+//! clicks overlap.
 
 use rodio::{Decoder, DeviceSinkBuilder, Source};
 use std::io::Cursor;
@@ -62,7 +62,7 @@ fn default_bytes() -> Arc<[u8]> {
 }
 
 fn audio_thread(rx: Receiver<AudioMsg>, ready_tx: Sender<bool>) {
-    // owns the cpal stream — !Send, must live here for the whole loop
+    // owns the cpal stream, !Send so it must live on this thread
     let handle = match DeviceSinkBuilder::open_default_sink() {
         Ok(mut h) => {
             h.log_on_drop(false);
@@ -84,7 +84,6 @@ fn audio_thread(rx: Receiver<AudioMsg>, ready_tx: Sender<bool>) {
             AudioMsg::Play(p) => play_once(&mixer, &bytes, p),
         }
     }
-    // handle drops here once all senders are gone → stream stops
 }
 
 fn play_once(mixer: &rodio::mixer::Mixer, bytes: &Arc<[u8]>, p: PlayParams) {
