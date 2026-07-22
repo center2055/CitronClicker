@@ -1125,6 +1125,17 @@ impl eframe::App for CitronApp {
             if captured.is_none() && this_frame != armed_at && os::key_held(0x14) {
                 captured = Some("Caps Lock".to_string());
             }
+            // modifiers (shift/ctrl/alt) don't arrive as egui Key events either
+            if captured.is_none() && this_frame != armed_at {
+                let m = ctx.input(|i| i.modifiers);
+                if m.shift {
+                    captured = Some("Shift".to_string());
+                } else if m.ctrl {
+                    captured = Some("Ctrl".to_string());
+                } else if m.alt {
+                    captured = Some("Alt".to_string());
+                }
+            }
             if let Some(name) = captured {
                 match target {
                     RebindTarget::Clicker { is_left, slot } => {

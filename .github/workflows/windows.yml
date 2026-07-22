@@ -41,7 +41,6 @@ jobs:
           body: |
             ## What's new in ${{ github.ref_name }}
 
-            - **AFK mode** — a new per-clicker toggle (Left Click / Right Click tabs) that clicks continuously while enabled, without holding the mouse button. Handy for afk farming. It still respects only-in-game, avoid GUI, the suspend key, and the panic key.
-            - Updated the Discord invite link.
+            - You can now bind modifier keys (**Shift**, **Ctrl**, **Alt**) to any keybind. For example, set the suspend key to Shift to pause the clicker while you break a block.
 
             Download `citron_v2.exe` and run it. If you're on an older build with auto-update on, you'll get this one automatically.
