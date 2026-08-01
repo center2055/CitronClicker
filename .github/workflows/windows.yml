@@ -41,6 +41,6 @@ jobs:
           body: |
             ## What's new in ${{ github.ref_name }}
 
-            - **Double click** now works with the autoclicker turned off too, so your own manual clicks register as two. With the clicker on it keeps firing its clicks in pairs like before. The panic key, suspend key, only in-game and avoid GUI all still stop it.
+            - Fixed **Double click** not actually registering in game. The gap between the two clicks was too short, so the game read them as one press. It now works both with the autoclicker on (its clicks fire in pairs) and off (your own manual clicks count as two).
 
             Download `citron_v2.exe` and run it. If you're on an older build with auto-update on, you'll get this one automatically.

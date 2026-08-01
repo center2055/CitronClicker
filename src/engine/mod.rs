@@ -304,8 +304,10 @@ fn clicker_loop(
             if snap.double_click {
                 // a rapid second click a few ms after the first, nested inside the hold so the
                 // cycle rate is unchanged: each press just registers as two clicks.
-                let dh = rng.range(2, 4) as f64;
-                let dg = rng.range(2, 7) as f64;
+                // the release has to last long enough for the game to actually see a separate
+                // click; a 2-3ms blip gets swallowed and just reads as one held press.
+                let dh = rng.range(5, 9) as f64;
+                let dg = rng.range(12, 20) as f64;
                 precise_delay(dh, &sig, is_left, !snap.afk);
                 os::click_up(is_left);
                 precise_delay(dg, &sig, is_left, !snap.afk);
@@ -337,9 +339,11 @@ fn clicker_loop(
                 dbl_down = false;
             }
             if dbl && phys && !phys_was {
-                precise_delay(rng.range(2, 4) as f64, &sig, is_left, true);
+                // let the real press land, then release long enough for the game to register a
+                // distinct second click before re-pressing
+                precise_delay(rng.range(5, 9) as f64, &sig, is_left, true);
                 os::click_up(is_left);
-                precise_delay(rng.range(2, 7) as f64, &sig, is_left, true);
+                precise_delay(rng.range(12, 20) as f64, &sig, is_left, true);
                 // only re-press if they're still holding, else we'd strand the button down
                 if os::physical_button_held(is_left) {
                     os::click_down(is_left);
