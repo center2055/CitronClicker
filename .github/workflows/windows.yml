@@ -41,6 +41,6 @@ jobs:
           body: |
             ## What's new in ${{ github.ref_name }}
 
-            - **Double click**: a new per-clicker toggle (Left Click / Right Click tabs). Each click fires a quick paired second click, so every press registers as two.
+            - **Double click** now works with the autoclicker turned off too, so your own manual clicks register as two. With the clicker on it keeps firing its clicks in pairs like before. The panic key, suspend key, only in-game and avoid GUI all still stop it.
 
             Download `citron_v2.exe` and run it. If you're on an older build with auto-update on, you'll get this one automatically.

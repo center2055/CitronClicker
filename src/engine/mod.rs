@@ -241,6 +241,8 @@ fn clicker_loop(
     let mut hd = HumanizedDelay::new();
     let mut sched = ClickScheduler::new();
     let mut was_clicking = false;
+    let mut phys_was = true; // need a release before the first standalone edge counts
+    let mut dbl_down = false; // an injected double-click press is currently held
 
     while sig.running.load(Ordering::Relaxed) {
         let (snap, audio_cfg) = {
@@ -319,11 +321,38 @@ fn clicker_loop(
                 os::click_up(is_left);
                 was_clicking = false;
             }
-            thread::sleep(Duration::from_millis(8));
+            // double-click with the autoclicker idle: split the user's own press into two so a
+            // manual click still reads as two. same gates as clicking, so panic, suspend,
+            // only-in-game and avoid-gui all still stop it.
+            let dbl = snap.double_click
+                && !sig.panic.load(Ordering::Relaxed)
+                && !sig.capturing.load(Ordering::Relaxed)
+                && !os::foreground_is_self()
+                && focus_ok
+                && !gui_block
+                && !suspend;
+            let phys = os::physical_button_held(is_left);
+            if dbl_down && !phys {
+                os::click_up(is_left); // never leave an injected press stuck down
+                dbl_down = false;
+            }
+            if dbl && phys && !phys_was {
+                precise_delay(rng.range(2, 4) as f64, &sig, is_left, true);
+                os::click_up(is_left);
+                precise_delay(rng.range(2, 7) as f64, &sig, is_left, true);
+                // only re-press if they're still holding, else we'd strand the button down
+                if os::physical_button_held(is_left) {
+                    os::click_down(is_left);
+                    play_click(&audio, audio_cfg);
+                    dbl_down = true;
+                }
+            }
+            phys_was = phys;
+            thread::sleep(Duration::from_millis(if dbl { 2 } else { 8 }));
         }
     }
 
-    if was_clicking {
+    if was_clicking || dbl_down {
         os::click_up(is_left); // don't leave a button stuck down on shutdown
     }
 }
