@@ -40,6 +40,8 @@ pub struct ClickerSnap {
     pub only_ingame: bool,
     /// afk / no-hold: click continuously while enabled instead of only while the button is held
     pub afk: bool,
+    /// double-click: fire a quick second click a few ms after each one (each press reads as two)
+    pub double_click: bool,
     pub suspend_vk: i32,
     pub hotkey_vk: i32,
     pub is_left: bool,
@@ -296,7 +298,22 @@ fn clicker_loop(
             }
             os::click_down(is_left);
             play_click(&audio, audio_cfg);
-            precise_delay(comp_down, &sig, is_left, !snap.afk);
+            let mut main_hold = comp_down;
+            if snap.double_click {
+                // a rapid second click a few ms after the first, nested inside the hold so the
+                // cycle rate is unchanged: each press just registers as two clicks.
+                let dh = rng.range(2, 4) as f64;
+                let dg = rng.range(2, 7) as f64;
+                precise_delay(dh, &sig, is_left, !snap.afk);
+                os::click_up(is_left);
+                precise_delay(dg, &sig, is_left, !snap.afk);
+                if snap.afk || os::physical_button_held(is_left) {
+                    os::click_down(is_left);
+                    play_click(&audio, audio_cfg);
+                }
+                main_hold = (comp_down - dh - dg).max(2.0);
+            }
+            precise_delay(main_hold, &sig, is_left, !snap.afk);
         } else {
             if was_clicking {
                 os::click_up(is_left);

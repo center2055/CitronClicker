@@ -41,6 +41,6 @@ jobs:
           body: |
             ## What's new in ${{ github.ref_name }}
 
-            - You can now bind modifier keys (**Shift**, **Ctrl**, **Alt**) to any keybind. For example, set the suspend key to Shift to pause the clicker while you break a block.
+            - **Double click**: a new per-clicker toggle (Left Click / Right Click tabs). Each click fires a quick paired second click, so every press registers as two.
 
             Download `citron_v2.exe` and run it. If you're on an older build with auto-update on, you'll get this one automatically.

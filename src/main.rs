@@ -257,6 +257,8 @@ struct Clicker {
     only_ingame: bool,
     #[serde(default)]
     afk: bool,
+    #[serde(default)]
+    double_click: bool,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -337,6 +339,7 @@ fn snap_of(ck: &Clicker, is_left: bool) -> ClickerSnap {
         jitter_intensity: ck.jitter_strength,
         only_ingame: ck.only_ingame,
         afk: ck.afk,
+        double_click: ck.double_click,
         suspend_vk: engine::vk_from_name(&ck.suspend),
         hotkey_vk: engine::vk_from_name(&ck.hotkey),
         is_left,
@@ -370,6 +373,7 @@ impl CitronApp {
             jitter_strength: 2,
             only_ingame: true,
             afk: false,
+            double_click: false,
         };
         let right = Clicker {
             enabled: false,
@@ -384,6 +388,7 @@ impl CitronApp {
             jitter_strength: 2,
             only_ingame: true,
             afk: false,
+            double_click: false,
         };
         let audio = audio::AudioHandle::spawn();
         let engine = EngineHandle::start(
@@ -1409,9 +1414,19 @@ impl CitronApp {
             },
         );
         ui.add_space(10.0);
-        option_row(ui, ic::PLAY, "AFK mode", "Click without holding (for afk farming)", accent, |ui| {
-            toggle(ui, &mut ck.afk, accent);
-        });
+        two_col(
+            ui,
+            |ui| {
+                option_row(ui, ic::PLAY, "AFK mode", "Click without holding", accent, |ui| {
+                    toggle(ui, &mut ck.afk, accent);
+                })
+            },
+            |ui| {
+                option_row(ui, ic::MOUSE, "Double click", "Two clicks per press", accent, |ui| {
+                    toggle(ui, &mut ck.double_click, accent);
+                })
+            },
+        );
 
         if warn {
             self.humanize_warn = Some(is_left);
