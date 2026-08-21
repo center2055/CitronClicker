@@ -53,6 +53,7 @@ mod ic {
     pub const REFRESH: char = '\u{e145}';
     pub const CHART: char = '\u{e2a2}';
     pub const DISC: char = '\u{e494}';
+    pub const SHIELD: char = '\u{e158}';
 }
 
 fn main() -> eframe::Result {
@@ -201,6 +202,7 @@ fn setup_style(ctx: &egui::Context) {
 enum Tab {
     Left,
     Right,
+    BlockHit,
     Sounds,
     Settings,
 }
@@ -209,6 +211,7 @@ enum Tab {
 enum BindSlot {
     Suspend,
     Hotkey,
+    Trigger,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -216,6 +219,7 @@ enum RebindTarget {
     Clicker { is_left: bool, slot: BindSlot },
     Panic,
     Taskbar,
+    BlockHit,
 }
 
 fn default_panic_key() -> String {
@@ -259,6 +263,37 @@ struct Clicker {
     afk: bool,
     #[serde(default)]
     double_click: bool,
+    /// button to hold instead of this clicker's own. empty = default.
+    #[serde(default)]
+    trigger: String,
+}
+
+/// blockhit settings: tap right click just after a hit so the sword blocks between attacks
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+struct BlockHit {
+    enabled: bool,
+    min_delay: f32,
+    max_delay: f32,
+    min_hold: f32,
+    max_hold: f32,
+    chance: f32,
+    only_ingame: bool,
+    hotkey: String,
+}
+
+impl Default for BlockHit {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_delay: 20.0,
+            max_delay: 60.0,
+            min_hold: 60.0,
+            max_hold: 140.0,
+            chance: 100.0,
+            only_ingame: true,
+            hotkey: "None".into(),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -281,6 +316,8 @@ struct Config {
     screen_hide: bool,
     #[serde(default = "default_taskbar_key")]
     taskbar_key: String,
+    #[serde(default)]
+    blockhit: BlockHit,
     #[serde(default)]
     custom_wav: Option<std::path::PathBuf>,
 }
@@ -324,7 +361,18 @@ struct CitronApp {
     autostart_applied: Option<bool>,
     screen_hide: bool,
     taskbar_key: String,
+    blockhit: BlockHit,
     screen_applied: Option<bool>,
+}
+
+/// empty or "Default" means the clicker keeps its own mouse button as the trigger
+fn trigger_vk_of(name: &str) -> i32 {
+    let n = name.trim();
+    if n.is_empty() || n.eq_ignore_ascii_case("default") {
+        0
+    } else {
+        engine::vk_from_name(n)
+    }
 }
 
 fn snap_of(ck: &Clicker, is_left: bool) -> ClickerSnap {
@@ -340,6 +388,7 @@ fn snap_of(ck: &Clicker, is_left: bool) -> ClickerSnap {
         only_ingame: ck.only_ingame,
         afk: ck.afk,
         double_click: ck.double_click,
+        trigger_vk: trigger_vk_of(&ck.trigger),
         suspend_vk: engine::vk_from_name(&ck.suspend),
         hotkey_vk: engine::vk_from_name(&ck.hotkey),
         is_left,
@@ -374,6 +423,7 @@ impl CitronApp {
             only_ingame: true,
             afk: false,
             double_click: false,
+            trigger: "Default".into(),
         };
         let right = Clicker {
             enabled: false,
@@ -389,6 +439,7 @@ impl CitronApp {
             only_ingame: true,
             afk: false,
             double_click: false,
+            trigger: "Default".into(),
         };
         let audio = audio::AudioHandle::spawn();
         let engine = EngineHandle::start(
@@ -398,6 +449,16 @@ impl CitronApp {
                 right: snap_of(&right, false),
                 panic_vk: engine::vk_from_name("F8"),
                 taskbar_vk: engine::vk_from_name("Insert"),
+                blockhit: engine::BlockHitSnap {
+                    enabled: false,
+                    min_delay: 20.0,
+                    max_delay: 60.0,
+                    min_hold: 60.0,
+                    max_hold: 140.0,
+                    chance: 100.0,
+                    only_ingame: true,
+                    hotkey_vk: 0,
+                },
                 audio: engine::AudioConfig {
                     enabled: true,
                     volume: 0.70,
@@ -448,6 +509,7 @@ impl CitronApp {
             autostart_applied: None,
             screen_hide: false,
             taskbar_key: "Insert".into(),
+            blockhit: BlockHit::default(),
             screen_applied: None,
         };
         if let Some(storage) = cc.storage {
@@ -481,6 +543,7 @@ impl CitronApp {
             panic_key: self.panic_key.clone(),
             screen_hide: self.screen_hide,
             taskbar_key: self.taskbar_key.clone(),
+            blockhit: self.blockhit.clone(),
             custom_wav: self.custom_wav.clone(),
         }
     }
@@ -501,6 +564,7 @@ impl CitronApp {
         self.panic_key = c.panic_key;
         self.screen_hide = c.screen_hide;
         self.taskbar_key = c.taskbar_key;
+        self.blockhit = c.blockhit;
         self.custom_wav = c.custom_wav;
         self.last_pack = self.pack;
         // reload a saved custom sound, fall back to default if it's gone/bad
@@ -527,6 +591,16 @@ impl CitronApp {
             right: snap_of(&self.right, false),
             panic_vk: engine::vk_from_name(&self.panic_key),
             taskbar_vk: engine::vk_from_name(&self.taskbar_key),
+            blockhit: engine::BlockHitSnap {
+                enabled: self.blockhit.enabled,
+                min_delay: self.blockhit.min_delay,
+                max_delay: self.blockhit.max_delay,
+                min_hold: self.blockhit.min_hold,
+                max_hold: self.blockhit.max_hold,
+                chance: self.blockhit.chance,
+                only_ingame: self.blockhit.only_ingame,
+                hotkey_vk: engine::vk_from_name(&self.blockhit.hotkey),
+            },
             audio: engine::AudioConfig {
                 enabled: self.sounds_on,
                 volume: self.volume / 100.0,
@@ -541,6 +615,7 @@ impl CitronApp {
             match req {
                 ToggleReq::Left => self.left.enabled = !self.left.enabled,
                 ToggleReq::Right => self.right.enabled = !self.right.enabled,
+                ToggleReq::BlockHit => self.blockhit.enabled = !self.blockhit.enabled,
             }
         }
         let ec = self.to_engine_config();
@@ -886,6 +961,40 @@ fn single_slider(ui: &mut egui::Ui, value: &mut f32, min: f32, max: f32, accent:
     p.circle_filled(Pos2::new(hx, y), 4.0, BG);
 }
 
+/// dual range slider over arbitrary bounds, snapped to whole units
+fn dual_range_ms(ui: &mut egui::Ui, min: &mut f32, max: &mut f32, lo: f32, hi: f32, accent: Color32) {
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 26.0), Sense::click_and_drag());
+    let to_x = |v: f32| rect.left() + (v - lo) / (hi - lo) * rect.width();
+    if resp.dragged() || resp.clicked() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            let t = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+            let val = (lo + t * (hi - lo)).round();
+            if (pos.x - to_x(*min)).abs() <= (pos.x - to_x(*max)).abs() {
+                *min = val.min(*max);
+            } else {
+                *max = val.max(*min);
+            }
+        }
+    }
+    let y = rect.center().y;
+    let p = ui.painter();
+    p.rect_filled(
+        Rect::from_min_max(Pos2::new(rect.left(), y - 2.0), Pos2::new(rect.right(), y + 2.0)),
+        CornerRadius::same(2),
+        TRACK,
+    );
+    p.rect_filled(
+        Rect::from_min_max(Pos2::new(to_x(*min), y - 2.0), Pos2::new(to_x(*max), y + 2.0)),
+        CornerRadius::same(2),
+        accent,
+    );
+    for v in [*min, *max] {
+        p.circle_filled(Pos2::new(to_x(v), y), 9.0, accent);
+        p.circle_filled(Pos2::new(to_x(v), y), 4.0, BG);
+    }
+}
+
 fn histogram(ui: &mut egui::Ui, histo: &[f32], accent: Color32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::hover());
     let n = histo.len().max(1);
@@ -1001,9 +1110,37 @@ fn option_row(
     });
 }
 
+/// bind row for the three-across layout. the chip is laid out from the right first, so a long key
+/// name eats into the title's space instead of drawing on top of it.
+fn bind_row(
+    ui: &mut egui::Ui,
+    icon: char,
+    title: &str,
+    label: &str,
+    listening: bool,
+    accent: Color32,
+) -> bool {
+    let mut clicked = false;
+    row_frame().show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.horizontal(|ui| {
+            icon_box(ui, icon, accent);
+            ui.add_space(4.0);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                clicked = bind_chip(ui, label, listening, accent);
+                ui.add_space(4.0);
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    ui.label(RichText::new(title).size(13.5).color(TXT));
+                });
+            });
+        });
+    });
+    clicked
+}
+
 /// keybind pill. shows "press a key…" while listening.
 fn bind_chip(ui: &mut egui::Ui, label: &str, listening: bool, accent: Color32) -> bool {
-    let txt = if listening { "Press a key\u{2026}" } else { label };
+    let txt = if listening { "Press\u{2026}" } else { label };
     let font = FontId::new(12.5, egui::FontFamily::Name("semibold".into()));
     let galley = ui.painter().layout_no_wrap(txt.to_string(), font.clone(), accent);
     let size = galley.size() + Vec2::new(24.0, 12.0);
@@ -1021,6 +1158,17 @@ fn bind_chip(ui: &mut egui::Ui, label: &str, listening: bool, accent: Color32) -
     let g = ui.painter().layout_no_wrap(txt.to_string(), font, txt_col);
     ui.painter().galley(rect.center() - g.size() / 2.0, g, txt_col);
     resp.clicked()
+}
+
+/// the bind rows sit three-across, so trim the long mouse names to keep the chip narrow
+fn short_bind(name: &str) -> &str {
+    match name.trim() {
+        "Left Click" => "Left",
+        "Right Click" => "Right",
+        "Middle Click" => "Middle",
+        "Caps Lock" => "Caps",
+        n => n,
+    }
 }
 
 fn listening_for(rb: Option<RebindTarget>, is_left: bool, slot: BindSlot) -> bool {
@@ -1055,6 +1203,19 @@ fn button_name(b: egui::PointerButton) -> &'static str {
         Extra1 => "Mouse 4",
         Extra2 => "Mouse 5",
     }
+}
+
+fn three_col(
+    ui: &mut egui::Ui,
+    a: impl FnOnce(&mut egui::Ui),
+    b: impl FnOnce(&mut egui::Ui),
+    c: impl FnOnce(&mut egui::Ui),
+) {
+    ui.columns(3, |col| {
+        a(&mut col[0]);
+        b(&mut col[1]);
+        c(&mut col[2]);
+    });
 }
 
 fn two_col(ui: &mut egui::Ui, a: impl FnOnce(&mut egui::Ui), b: impl FnOnce(&mut egui::Ui)) {
@@ -1148,10 +1309,12 @@ impl eframe::App for CitronApp {
                         match slot {
                             BindSlot::Suspend => ck.suspend = name,
                             BindSlot::Hotkey => ck.hotkey = name,
+                            BindSlot::Trigger => ck.trigger = name,
                         }
                     }
                     RebindTarget::Panic => self.panic_key = name,
                     RebindTarget::Taskbar => self.taskbar_key = name,
+                    RebindTarget::BlockHit => self.blockhit.hotkey = name,
                 }
                 self.rebind = None;
             }
@@ -1171,6 +1334,7 @@ impl eframe::App for CitronApp {
             .show_inside(ui, |ui| match self.tab {
                 Tab::Left => self.clicker_tab(ui, true),
                 Tab::Right => self.clicker_tab(ui, false),
+                Tab::BlockHit => self.blockhit_tab(ui),
                 Tab::Sounds => self.sounds_tab(ui),
                 Tab::Settings => self.settings_tab(ui),
             });
@@ -1254,6 +1418,7 @@ impl CitronApp {
         let tabs = [
             (Tab::Left, "LEFT CLICK", ic::MOUSE),
             (Tab::Right, "RIGHT CLICK", ic::MOUSE),
+            (Tab::BlockHit, "BLOCKHIT", ic::SHIELD),
             (Tab::Sounds, "SOUNDS", ic::VOLUME),
             (Tab::Settings, "SETTINGS", ic::SETTINGS),
         ];
@@ -1300,6 +1465,7 @@ impl CitronApp {
         let mut warn = false;
         let mut arm_susp = false;
         let mut arm_hot = false;
+        let mut arm_trig = false;
         let ck = if is_left { &mut self.left } else { &mut self.right };
         let title = if is_left { "LEFT CLICKER" } else { "RIGHT CLICKER" };
 
@@ -1343,31 +1509,49 @@ impl CitronApp {
 
         ui.add_space(12.0);
 
-        two_col(
+        // three across so the extra bind doesn't add another row to the tab
+        let trig_label = if ck.trigger.trim().is_empty() {
+            "Default"
+        } else {
+            ck.trigger.as_str()
+        };
+        three_col(
             ui,
             |ui| {
-                option_row(ui, ic::PAUSE, "Suspend key", "Hold to pause", accent, |ui| {
-                    if bind_chip(
-                        ui,
-                        ck.suspend.as_str(),
-                        listening_for(rebind, is_left, BindSlot::Suspend),
-                        accent,
-                    ) {
-                        arm_susp = true;
-                    }
-                })
+                if bind_row(
+                    ui,
+                    ic::MOUSE,
+                    "Trigger",
+                    short_bind(trig_label),
+                    listening_for(rebind, is_left, BindSlot::Trigger),
+                    accent,
+                ) {
+                    arm_trig = true;
+                }
             },
             |ui| {
-                option_row(ui, ic::KEYBOARD, "Toggle hotkey", "Click to rebind", accent, |ui| {
-                    if bind_chip(
-                        ui,
-                        ck.hotkey.as_str(),
-                        listening_for(rebind, is_left, BindSlot::Hotkey),
-                        accent,
-                    ) {
-                        arm_hot = true;
-                    }
-                })
+                if bind_row(
+                    ui,
+                    ic::PAUSE,
+                    "Suspend",
+                    short_bind(ck.suspend.as_str()),
+                    listening_for(rebind, is_left, BindSlot::Suspend),
+                    accent,
+                ) {
+                    arm_susp = true;
+                }
+            },
+            |ui| {
+                if bind_row(
+                    ui,
+                    ic::KEYBOARD,
+                    "Hotkey",
+                    short_bind(ck.hotkey.as_str()),
+                    listening_for(rebind, is_left, BindSlot::Hotkey),
+                    accent,
+                ) {
+                    arm_hot = true;
+                }
             },
         );
         ui.add_space(10.0);
@@ -1436,6 +1620,9 @@ impl CitronApp {
             self.rebind_armed_at = ui.ctx().cumulative_frame_nr();
         } else if arm_hot {
             self.rebind = Some(RebindTarget::Clicker { is_left, slot: BindSlot::Hotkey });
+            self.rebind_armed_at = ui.ctx().cumulative_frame_nr();
+        } else if arm_trig {
+            self.rebind = Some(RebindTarget::Clicker { is_left, slot: BindSlot::Trigger });
             self.rebind_armed_at = ui.ctx().cumulative_frame_nr();
         }
     }
@@ -1533,6 +1720,100 @@ impl CitronApp {
             if let Some(a) = &self.audio {
                 a.preview();
             }
+        }
+    }
+
+    fn blockhit_tab(&mut self, ui: &mut egui::Ui) {
+        let accent = self.accent;
+        let listening = self.rebind == Some(RebindTarget::BlockHit);
+        let hotkey = self.blockhit.hotkey.clone();
+        let mut arm = false;
+
+        card().show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.horizontal(|ui| {
+                ui.label(cap("BLOCK HIT", accent));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    toggle(ui, &mut self.blockhit.enabled, accent);
+                });
+            });
+            ui.label(
+                RichText::new("Blocks with the sword right after a hit, then releases before the next one.")
+                    .size(11.0)
+                    .color(MUT),
+            );
+            ui.add_space(10.0);
+
+            ui.horizontal(|ui| {
+                ui.label(cap("DELAY AFTER HIT", MUT));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(semibold(
+                        &format!("{:.0} - {:.0} ms", self.blockhit.min_delay, self.blockhit.max_delay),
+                        13.0,
+                        accent,
+                    ));
+                });
+            });
+            dual_range_ms(
+                ui,
+                &mut self.blockhit.min_delay,
+                &mut self.blockhit.max_delay,
+                0.0,
+                200.0,
+                accent,
+            );
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                ui.label(cap("BLOCK HOLD", MUT));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(semibold(
+                        &format!("{:.0} - {:.0} ms", self.blockhit.min_hold, self.blockhit.max_hold),
+                        13.0,
+                        accent,
+                    ));
+                });
+            });
+            dual_range_ms(
+                ui,
+                &mut self.blockhit.min_hold,
+                &mut self.blockhit.max_hold,
+                10.0,
+                400.0,
+                accent,
+            );
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                ui.label(cap("CHANCE PER HIT", MUT));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(semibold(&format!("{:.0}%", self.blockhit.chance), 13.0, accent));
+                });
+            });
+            single_slider(ui, &mut self.blockhit.chance, 0.0, 100.0, accent);
+            self.blockhit.chance = self.blockhit.chance.round();
+        });
+
+        ui.add_space(12.0);
+        two_col(
+            ui,
+            |ui| {
+                option_row(ui, ic::KEYBOARD, "Toggle hotkey", "Click to rebind", accent, |ui| {
+                    if bind_chip(ui, &hotkey, listening, accent) {
+                        arm = true;
+                    }
+                })
+            },
+            |ui| {
+                option_row(ui, ic::GAMEPAD, "Only in-game", "Off = any window", accent, |ui| {
+                    toggle(ui, &mut self.blockhit.only_ingame, accent);
+                })
+            },
+        );
+        if arm {
+            self.rebind = Some(RebindTarget::BlockHit);
+            self.rebind_armed_at = ui.ctx().cumulative_frame_nr();
         }
     }
 

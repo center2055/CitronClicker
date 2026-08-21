@@ -41,6 +41,7 @@ jobs:
           body: |
             ## What's new in ${{ github.ref_name }}
 
-            - Fixed **Double click** not actually registering in game. The gap between the two clicks was too short, so the game read them as one press. It now works both with the autoclicker on (its clicks fire in pairs) and off (your own manual clicks count as two).
+            - **Blockhit**, on its own tab. After each hit it taps right click so the sword blocks between attacks, then releases before the next one. The delay, how long it blocks, and how often it happens are all adjustable, and it has its own hotkey.
+            - **Trigger** button per clicker. Bind it to a side button and the clicker fires while you hold that instead of your left mouse button, so you can still break blocks normally without turning the clicker off.
 
             Download `citron_v2.exe` and run it. If you're on an older build with auto-update on, you'll get this one automatically.

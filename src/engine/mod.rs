@@ -4,7 +4,7 @@ pub mod timing;
 
 use crate::os;
 use eframe::egui;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -22,6 +22,8 @@ pub struct EngineSignals {
     pub running: AtomicBool,
     /// taskbar-hide state. whoever flips it also does the os apply; this is just the shared truth.
     pub taskbar_hidden: AtomicBool,
+    /// bumped on every left attack so blockhit can react to the clicker's own hits
+    pub left_click_seq: AtomicU64,
     /// set while a rebind is armed: pauses the engine so the bound key doesn't also toggle or click
     pub capturing: AtomicBool,
 }
@@ -42,6 +44,8 @@ pub struct ClickerSnap {
     pub afk: bool,
     /// double-click: fire a quick second click a few ms after each one (each press reads as two)
     pub double_click: bool,
+    /// button/key that has to be held to click. 0 = this clicker's own mouse button.
+    pub trigger_vk: i32,
     pub suspend_vk: i32,
     pub hotkey_vk: i32,
     pub is_left: bool,
@@ -55,18 +59,33 @@ pub struct AudioConfig {
     pub separate: bool,
 }
 
+/// blockhit: after a left attack, tap right click so the sword blocks for a moment. delays are ms.
+#[derive(Clone, PartialEq)]
+pub struct BlockHitSnap {
+    pub enabled: bool,
+    pub min_delay: f32,
+    pub max_delay: f32,
+    pub min_hold: f32,
+    pub max_hold: f32,
+    pub chance: f32,
+    pub only_ingame: bool,
+    pub hotkey_vk: i32,
+}
+
 #[derive(Clone, PartialEq)]
 pub struct EngineConfig {
     pub left: ClickerSnap,
     pub right: ClickerSnap,
     pub panic_vk: i32,
     pub taskbar_vk: i32,
+    pub blockhit: BlockHitSnap,
     pub audio: AudioConfig,
 }
 
 pub enum ToggleReq {
     Left,
     Right,
+    BlockHit,
 }
 
 pub struct EngineHandle {
@@ -95,6 +114,7 @@ impl EngineHandle {
             any_focused: AtomicBool::new(false),
             running: AtomicBool::new(true),
             taskbar_hidden: AtomicBool::new(false),
+            left_click_seq: AtomicU64::new(0),
             capturing: AtomicBool::new(false),
         });
         let config = Arc::new(Mutex::new(initial));
@@ -117,6 +137,11 @@ impl EngineHandle {
             let s = signals.clone();
             let c = config.clone();
             joins.push(thread::spawn(move || key_poll_loop(s, c, tx, ctx)));
+        }
+        {
+            let s = signals.clone();
+            let c = config.clone();
+            joins.push(thread::spawn(move || blockhit_loop(s, c)));
         }
 
         EngineHandle {
@@ -206,17 +231,25 @@ impl ClickScheduler {
     }
 }
 
-/// accurate wait that bails early if the engine stops or (unless in afk mode) the button is released
-fn precise_delay(ms: f64, sig: &EngineSignals, is_left: bool, require_hold: bool) {
+/// is this clicker's trigger held? remapping it (say to a side button) leaves the real mouse
+/// button free, so you can still break blocks without turning the clicker off.
+fn trigger_held(snap: &ClickerSnap) -> bool {
+    if snap.trigger_vk == 0 {
+        os::physical_button_held(snap.is_left)
+    } else {
+        os::key_held(snap.trigger_vk)
+    }
+}
+
+/// accurate wait that bails early if the engine stops or (unless in afk mode) the trigger is released
+fn precise_delay(ms: f64, sig: &EngineSignals, snap: &ClickerSnap, require_hold: bool) {
     if ms <= 0.0 {
         return;
     }
     let start = Instant::now();
     let target = Duration::from_secs_f64(ms / 1000.0);
     loop {
-        if !sig.running.load(Ordering::Relaxed)
-            || (require_hold && !os::physical_button_held(is_left))
-        {
+        if !sig.running.load(Ordering::Relaxed) || (require_hold && !trigger_held(snap)) {
             break;
         }
         let elapsed = start.elapsed();
@@ -268,7 +301,7 @@ fn clicker_loop(
         let gui_block = snap.avoid_gui && snap.only_ingame && os::cursor_visible();
         // afk mode drops the hold-to-click requirement: once enabled (and gated by focus/suspend/
         // avoid-gui), it clicks on its own. otherwise the physical button must be held.
-        let hold = snap.afk || os::physical_button_held(is_left);
+        let hold = snap.afk || trigger_held(&snap);
         let should = snap.enabled
             && !sig.panic.load(Ordering::Relaxed)
             && !sig.capturing.load(Ordering::Relaxed)
@@ -294,11 +327,14 @@ fn clicker_loop(
             if audio_cfg.separate {
                 play_click(&audio, audio_cfg);
             }
-            precise_delay(comp_up, &sig, is_left, !snap.afk);
-            if !snap.afk && !os::physical_button_held(is_left) {
+            precise_delay(comp_up, &sig, &snap, !snap.afk);
+            if !snap.afk && !trigger_held(&snap) {
                 continue; // released mid-cycle; next loop's else emits the trailing up
             }
             os::click_down(is_left);
+            if is_left {
+                sig.left_click_seq.fetch_add(1, Ordering::Relaxed);
+            }
             play_click(&audio, audio_cfg);
             let mut main_hold = comp_down;
             if snap.double_click {
@@ -308,16 +344,16 @@ fn clicker_loop(
                 // click; a 2-3ms blip gets swallowed and just reads as one held press.
                 let dh = rng.range(5, 9) as f64;
                 let dg = rng.range(12, 20) as f64;
-                precise_delay(dh, &sig, is_left, !snap.afk);
+                precise_delay(dh, &sig, &snap, !snap.afk);
                 os::click_up(is_left);
-                precise_delay(dg, &sig, is_left, !snap.afk);
-                if snap.afk || os::physical_button_held(is_left) {
+                precise_delay(dg, &sig, &snap, !snap.afk);
+                if snap.afk || trigger_held(&snap) {
                     os::click_down(is_left);
                     play_click(&audio, audio_cfg);
                 }
                 main_hold = (comp_down - dh - dg).max(2.0);
             }
-            precise_delay(main_hold, &sig, is_left, !snap.afk);
+            precise_delay(main_hold, &sig, &snap, !snap.afk);
         } else {
             if was_clicking {
                 os::click_up(is_left);
@@ -339,11 +375,15 @@ fn clicker_loop(
                 dbl_down = false;
             }
             if dbl && phys && !phys_was {
+                // this path doubles a real click, so the wait tracks the physical button rather
+                // than a remapped trigger
+                let mut phys_snap = snap.clone();
+                phys_snap.trigger_vk = 0;
                 // let the real press land, then release long enough for the game to register a
                 // distinct second click before re-pressing
-                precise_delay(rng.range(5, 9) as f64, &sig, is_left, true);
+                precise_delay(rng.range(5, 9) as f64, &sig, &phys_snap, true);
                 os::click_up(is_left);
-                precise_delay(rng.range(12, 20) as f64, &sig, is_left, true);
+                precise_delay(rng.range(12, 20) as f64, &sig, &phys_snap, true);
                 // only re-press if they're still holding, else we'd strand the button down
                 if os::physical_button_held(is_left) {
                     os::click_down(is_left);
@@ -390,7 +430,7 @@ fn jitter_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineConf
             && focus_ok
             && !gui_block
             && !suspend
-            && (snap.afk || os::physical_button_held(is_left));
+            && (snap.afk || trigger_held(&snap));
         if active {
             if let Some((dx, dy)) = jit.next(snap.jitter_intensity, &mut rng) {
                 os::jitter_move(dx, dy);
@@ -401,6 +441,88 @@ fn jitter_loop(is_left: bool, sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineConf
             thread::sleep(Duration::from_millis(16));
         }
     }
+}
+
+// blockhit: right after a left attack, tap right click so the sword blocks for a moment, then
+// release before the next hit. arsenic does this internally off the target's hurtTime; we can't read
+// game state from outside, so we time it from our own attacks instead. delays and the skip chance
+// are randomised so it isn't a fixed pattern after every single hit.
+fn blockhit_loop(sig: Arc<EngineSignals>, cfg: Arc<Mutex<EngineConfig>>) {
+    let mut rng = Rng::seeded(0xB10C);
+    let mut last_seq = 0u64;
+    let mut phys_was = true;
+    let mut blocking = false;
+    let mut release_at = Instant::now();
+    let mut press_at: Option<Instant> = None;
+
+    while sig.running.load(Ordering::Relaxed) {
+        let bh = { cfg.lock().unwrap().blockhit.clone() };
+        let focus_ok = if bh.only_ingame {
+            sig.mc_focused.load(Ordering::Relaxed)
+        } else {
+            sig.any_focused.load(Ordering::Relaxed)
+        };
+        let ok = bh.enabled
+            && !sig.panic.load(Ordering::Relaxed)
+            && !sig.capturing.load(Ordering::Relaxed)
+            && !os::foreground_is_self()
+            && focus_ok;
+
+        let now = Instant::now();
+        if blocking && (!ok || now >= release_at) {
+            os::click_up(false);
+            blocking = false;
+        }
+        if !ok {
+            // stay in sync while idle so re-enabling doesn't fire on a stale edge
+            press_at = None;
+            phys_was = os::physical_button_held(true);
+            last_seq = sig.left_click_seq.load(Ordering::Relaxed);
+            thread::sleep(Duration::from_millis(8));
+            continue;
+        }
+
+        // an attack is either one the clicker fired or, with it idle, a manual press
+        let seq = sig.left_click_seq.load(Ordering::Relaxed);
+        let phys = os::physical_button_held(true);
+        let attacked = seq != last_seq || (phys && !phys_was);
+        last_seq = seq;
+        phys_was = phys;
+
+        if attacked {
+            // always come out of the block for the hit itself, so a hold longer than the click
+            // period can't sit on top of the next attack. hold then acts as an upper bound.
+            if blocking {
+                os::click_up(false);
+                blocking = false;
+            }
+            if press_at.is_none()
+                && !os::physical_button_held(false) // don't fight a block they're already holding
+                && rng.unit() * 100.0 < bh.chance as f64
+            {
+                press_at =
+                    Some(now + Duration::from_secs_f64(pick(bh.min_delay, bh.max_delay, &mut rng)));
+            }
+        }
+        if let Some(t) = press_at {
+            if now >= t {
+                os::click_down(false);
+                blocking = true;
+                release_at = now + Duration::from_secs_f64(pick(bh.min_hold, bh.max_hold, &mut rng));
+                press_at = None;
+            }
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    if blocking {
+        os::click_up(false); // never leave the block stuck down
+    }
+}
+
+/// uniform pick between two ms bounds (either order), returned as seconds
+fn pick(a: f32, b: f32, rng: &mut Rng) -> f64 {
+    let (lo, hi) = (a.min(b) as f64, a.max(b) as f64);
+    (lo + rng.unit() * (hi - lo)) / 1000.0
 }
 
 fn play_click(audio: &Option<crate::audio::AudioHandle>, cfg: AudioConfig) {
@@ -432,6 +554,7 @@ fn key_poll_loop(
     let mut right_was = true;
     let mut panic_was = true;
     let mut taskbar_was = true;
+    let mut blockhit_was = true;
     let mut last_focus = Instant::now()
         .checked_sub(Duration::from_secs(1))
         .unwrap_or_else(Instant::now);
@@ -444,6 +567,7 @@ fn key_poll_loop(
             right_was = true;
             panic_was = true;
             taskbar_was = true;
+            blockhit_was = true;
             sig.suspend_left.store(false, Ordering::Relaxed);
             sig.suspend_right.store(false, Ordering::Relaxed);
             thread::sleep(Duration::from_millis(10));
@@ -472,6 +596,11 @@ fn key_poll_loop(
         edge(snap.right.hotkey_vk, &mut right_was, || {
             cfg.lock().unwrap().right.enabled ^= true;
             let _ = tx.send(ToggleReq::Right);
+            ctx.request_repaint();
+        });
+        edge(snap.blockhit.hotkey_vk, &mut blockhit_was, || {
+            cfg.lock().unwrap().blockhit.enabled ^= true;
+            let _ = tx.send(ToggleReq::BlockHit);
             ctx.request_repaint();
         });
         if snap.panic_vk != 0 {
